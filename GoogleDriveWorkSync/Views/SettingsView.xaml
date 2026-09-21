@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="GoogleDriveWorkSync.Views.SettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:GoogleDriveWorkSync.Models"
+    xmlns:vm="using:GoogleDriveWorkSync.ViewModels"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="Transparent">
+
+    <Grid Padding="36">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Ajustes y Configuración" Style="{StaticResource TitleTextBlockStyle}" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="24" MaxWidth="720" HorizontalAlignment="Left">
+
+                <!-- Save Confirmation InfoBar -->
+                <InfoBar Title="Configuración guardada"
+                         Message="{x:Bind ViewModel.SaveConfirmationMessage, Mode=OneWay}"
+                         IsOpen="{x:Bind ViewModel.ShowSaveConfirmation, Mode=TwoWay}"
+                         Severity="Success"
+                         IsClosable="True" />
+
+                <!-- Google Apps Script Web App Integration -->
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Conexión con Google Drive" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18">
+                        <StackPanel Spacing="14">
+                            <TextBox Header="URL de la Web App de Google Apps Script (/exec)"
+                                     Text="{x:Bind ViewModel.DriveWebAppUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="https://script.google.com/macros/s/.../exec" />
+
+                            <TextBox Header="Token de autorización secreto (opcional)"
+                                     Text="{x:Bind ViewModel.DriveAuthToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="Token configurado en tu Apps Script para autorizar subidas" />
+
+                            <TextBox Header="URL de la carpeta de Google Drive (para el botón «Abrir Drive»)"
+                                     Text="{x:Bind ViewModel.DriveFolderUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="https://drive.google.com/drive/folders/..." />
+
+                            <!-- Test connection -->
+                            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,4,0,0" VerticalAlignment="Center">
+                                <Button Content="Probar Conexión"
+                                        Command="{x:Bind ViewModel.TestDriveConnectionCommand}"
+                                        IsEnabled="{x:Bind ViewModel.IsDriveTesting, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}" />
+
+                                <ProgressRing IsActive="{x:Bind ViewModel.IsDriveTesting, Mode=OneWay}" Width="16" Height="16" />
+
+                                <TextBlock Text="{x:Bind ViewModel.DriveConnectionStatus, Mode=OneWay}"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Work Folders (Multi-source) -->
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Carpetas de Trabajo a Sincronizar" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Cada carpeta local se sube a su correspondiente subcarpeta en Google Drive."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.DriveSyncSources, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:SyncSource">
+                                        <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,8">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Spacing="4">
+                                                    <TextBlock Text="{x:Bind LocalFolderPath}" Style="{StaticResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock Text="Subcarpeta en Drive:" Style="{StaticResource CaptionTextBlockStyle}"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                                        <TextBox Text="{x:Bind DestinationPrefix, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Width="180" Height="32" Padding="6,2" PlaceholderText="ej: mi-proyecto" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" ToolTipService.ToolTip="Eliminar carpeta"
+                                                        Tag="{x:Bind}" Click="DeleteSourceButton_Click" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Button Click="AddSourceFolderButton_Click" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                    <TextBlock Text="Agregar carpeta..." />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Flexible Scheduler -->
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Programador Automático de Sincronización" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18">
+                        <StackPanel Spacing="16">
+                            <ToggleSwitch Header="Habilitar sincronización automática programada"
+                                          IsOn="{x:Bind ViewModel.IsScheduleEnabled, Mode=TwoWay}" />
+                            <TextBlock Text="Ejecuta una sincronización silenciosa incremental en segundo plano al llegar al horario configurado."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Margin="0,-8,0,0" />
+
+                            <StackPanel Visibility="{x:Bind ViewModel.IsScheduleEnabled, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" Spacing="14">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Hora programada" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TimePicker Time="{x:Bind ViewModel.ScheduledTime, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Días de sincronización" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ToggleButton Content="Lun" IsChecked="{x:Bind ViewModel.IsMonday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Mar" IsChecked="{x:Bind ViewModel.IsTuesday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Mié" IsChecked="{x:Bind ViewModel.IsWednesday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Jue" IsChecked="{x:Bind ViewModel.IsThursday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Vie" IsChecked="{x:Bind ViewModel.IsFriday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Sáb" IsChecked="{x:Bind ViewModel.IsSaturday, Mode=TwoWay}" MinWidth="42" />
+                                        <ToggleButton Content="Dom" IsChecked="{x:Bind ViewModel.IsSunday, Mode=TwoWay}" MinWidth="42" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <CheckBox Content="Incluir también archivos de contexto IA (Claude)"
+                                          IsChecked="{x:Bind ViewModel.SyncClaudeContextAlso, Mode=TwoWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Advanced Filters and Claude settings -->
+                <Expander Header="Filtros y opciones avanzadas" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,12,0,0">
+                        <TextBox Header="Extensiones permitidas (Whitelist, ej: .pdf, .docx)"
+                                 Text="{x:Bind ViewModel.DriveIncludedExtensions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBox Header="Extensiones excluidas"
+                                 Text="{x:Bind ViewModel.DriveExcludedExtensions, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBox Header="Carpetas excluidas"
+                                 Text="{x:Bind ViewModel.DriveExcludedFolders, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <NumberBox Header="Tamaño máximo por archivo (MB, máx 25)"
+                                   Value="{x:Bind ViewModel.DriveMaxFileSizeMb, Mode=TwoWay}" Minimum="1" Maximum="25" />
+
+                        <TextBox Header="Prefijo en Drive para Contexto IA"
+                                 Text="{x:Bind ViewModel.ClaudeDestinationPrefix, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="Restablecer Caché de Hashes"
+                                        Command="{x:Bind ViewModel.ClearHashIndexCommand}" />
+                                <TextBlock Grid.Column="1"
+                                           Text="Borra el registro local de hashes para re-evaluar todos los archivos desde cero en el próximo run."
+                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center" TextWrapping="Wrap" />
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Expander>
+
+                <!-- System and App options -->
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Sistema y Actualizaciones" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18">
+                        <StackPanel Spacing="14">
+                            <ToggleSwitch Header="Iniciar con Windows (Autostart)"
+                                          IsOn="{x:Bind ViewModel.IsAutostartEnabled, Mode=TwoWay}" />
+
+                            <Grid Margin="0,8,0,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Text="Versión actual:" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{x:Bind ViewModel.CurrentVersion, Mode=OneWay}" FontWeight="SemiBold" Style="{StaticResource CaptionTextBlockStyle}"/>
+                                    <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,0,0,0"/>
+                                </StackPanel>
+
+                                <Button Grid.Column="1" Content="Buscar actualizaciones"
+                                        HorizontalAlignment="Right"
+                                        Command="{x:Bind ViewModel.CheckForUpdatesCommand}"
+                                        IsEnabled="{x:Bind ViewModel.IsCheckingUpdate, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Save All Action Button -->
+                <Button Content="Guardar Configuración" Style="{StaticResource AccentButtonStyle}"
+                        Command="{x:Bind ViewModel.SaveAllSettingsCommand}"
+                        HorizontalAlignment="Left" Padding="24,8" Margin="0,0,0,24" />
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

@@ -1,0 +1,31 @@
+## Build and Output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+releases/
+artifacts/
+publish/
+
+## Visual Studio & Rider
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+.idea/
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## Testing & Coverage
+TestResults/
+*.trx
+coverage/
+
+## App specific runtime data
+LocalSettings.json
+sync_hashes.json
+sync_errors.json
+*.log

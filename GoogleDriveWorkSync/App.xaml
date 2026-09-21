@@ -1,0 +1,18 @@
+<Application
+    x:Class="GoogleDriveWorkSync.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:GoogleDriveWorkSync.Helpers">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+            <helpers:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <helpers:InverseBoolConverter x:Key="InverseBoolConverter" />
+            <helpers:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
