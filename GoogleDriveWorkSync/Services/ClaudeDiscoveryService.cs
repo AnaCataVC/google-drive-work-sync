@@ -165,10 +165,16 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
                 foreach (var sub in Directory.GetDirectories(currentDir))
                 {
                     var name = Path.GetFileName(sub);
-                    if (!IsDirectorySkipped(name))
-                    {
-                        queue.Enqueue((sub, depth + 1));
-                    }
+                    // Skip directories whose name is in the blocklist.
+                    if (IsDirectorySkipped(name))
+                        continue;
+                    // Skip subdirectories that are themselves git repository roots
+                    // (standard repos have a .git directory; worktrees have a .git file).
+                    // This prevents the BFS from descending into nested repos or linked
+                    // worktrees and picking up versioned CLAUDE.md files as untracked.
+                    if (IsGitRepoRoot(sub))
+                        continue;
+                    queue.Enqueue((sub, depth + 1));
                 }
             }
             catch { }
@@ -273,6 +279,25 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
             return true;
         }
 
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="fullPath"/> is itself the root of a git repository
+    /// (i.e. contains a <c>.git</c> directory OR a <c>.git</c> file, the latter being the
+    /// case for git worktrees created via <c>git worktree add</c>).
+    /// This is used during BFS traversal to prevent the scanner from descending into
+    /// nested/sibling repositories and picking up versioned CLAUDE.md files.
+    /// </summary>
+    public static bool IsGitRepoRoot(string fullPath)
+    {
+        var gitEntry = Path.Combine(fullPath, ".git");
+        // Standard repository: .git is a directory
+        if (Directory.Exists(gitEntry))
+            return true;
+        // Linked worktree: .git is a plain text file starting with "gitdir:"
+        if (File.Exists(gitEntry))
+            return true;
         return false;
     }
 

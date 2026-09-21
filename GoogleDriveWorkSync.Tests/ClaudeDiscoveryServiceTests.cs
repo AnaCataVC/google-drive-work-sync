@@ -62,6 +62,74 @@ public class ClaudeDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public void IsGitRepoRoot_ReturnsTrueForDirectoryWithDotGitFolder()
+    {
+        string repoDir = Path.Combine(_tempDir, "fake-repo");
+        Directory.CreateDirectory(Path.Combine(repoDir, ".git"));
+
+        Assert.True(ClaudeDiscoveryService.IsGitRepoRoot(repoDir));
+    }
+
+    [Fact]
+    public void IsGitRepoRoot_ReturnsTrueForWorktreeWithDotGitFile()
+    {
+        // git worktrees have a .git *file* (not directory) containing "gitdir: ..."
+        string worktreeDir = Path.Combine(_tempDir, "fake-worktree");
+        Directory.CreateDirectory(worktreeDir);
+        File.WriteAllText(Path.Combine(worktreeDir, ".git"), "gitdir: ../.git/worktrees/fake-worktree\n");
+
+        Assert.True(ClaudeDiscoveryService.IsGitRepoRoot(worktreeDir));
+    }
+
+    [Fact]
+    public void IsGitRepoRoot_ReturnsFalseForPlainDirectory()
+    {
+        string plainDir = Path.Combine(_tempDir, "plain-folder");
+        Directory.CreateDirectory(plainDir);
+
+        Assert.False(ClaudeDiscoveryService.IsGitRepoRoot(plainDir));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_SkipsVersionedClaudeMdInsideNestedRepo()
+    {
+        // Simulate a nested standard git repo: rootPath/sub-repo/ with .git/ folder
+        string subRepoDir = Path.Combine(_tempDir, "sub-repo");
+        Directory.CreateDirectory(Path.Combine(subRepoDir, ".git"));
+        File.WriteAllText(Path.Combine(subRepoDir, "CLAUDE.md"), "# Versioned — must NOT be synced");
+
+        // Unversioned CLAUDE.md at rootPath level (no .git there)
+        File.WriteAllText(Path.Combine(_tempDir, "CLAUDE.md"), "# Unversioned — must be synced");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_tempDir, maxDepth: 3);
+
+        Assert.Contains(report.Candidates, c => c.FilePath.Equals(
+            Path.Combine(_tempDir, "CLAUDE.md"), StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(report.Candidates, c => c.FilePath.Contains("sub-repo"));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_SkipsVersionedClaudeMdInsideWorktree()
+    {
+        // Simulate a git worktree: rootPath/my-worktree/ with .git file
+        string worktreeDir = Path.Combine(_tempDir, "my-worktree");
+        Directory.CreateDirectory(worktreeDir);
+        File.WriteAllText(Path.Combine(worktreeDir, ".git"), "gitdir: ../.git/worktrees/my-worktree\n");
+        File.WriteAllText(Path.Combine(worktreeDir, "CLAUDE.md"), "# Worktree — must NOT be synced");
+
+        // Unversioned CLAUDE.md at root
+        File.WriteAllText(Path.Combine(_tempDir, "CLAUDE.md"), "# Unversioned — must be synced");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_tempDir, maxDepth: 3);
+
+        Assert.Contains(report.Candidates, c => c.FilePath.Equals(
+            Path.Combine(_tempDir, "CLAUDE.md"), StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(report.Candidates, c => c.FilePath.Contains("my-worktree"));
+    }
+
+    [Fact]
     public void HasInfrastructureSecret_DetectsPrivateKey()
     {
         string filePath = Path.Combine(_tempDir, "key.md");
