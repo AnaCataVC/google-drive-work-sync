@@ -23,6 +23,7 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 
 ### 2. Claude AI Context Discovery & Backup
 - **Multi-Level Project Traversal:** Performs breadth-first scans (levels 1–6) across developer workspaces, detecting Claude project guidelines (`CLAUDE.md`), agent skills, subagent prompts, memory files, and hooks.
+- **Nested Repository & Worktree Exclusion:** The BFS traversal detects directories that are git repository roots — both standard repos (`.git` directory) and linked worktrees (`.git` file written by `git worktree add`) — and skips them entirely, preventing versioned `CLAUDE.md` files from being misclassified as untracked or out-of-sync.
 - **Multi-Layer Secret Redaction:** Employs a three-tiered defense (blacklisted filenames, 64 KB header regex scans for PAT/SSH/OAuth tokens, and fail-closed MCP server configuration parsing) to prevent accidental data leakage.
 - **Git Tracking Awareness:** Uses batched `git ls-files` queries to distinguish tracked documentation from uncommitted local scratchpad notes.
 - **Status Classification:** Automatically cross-references candidates against the persistent hash index to classify items as *New*, *Modified*, or *Up to date*.
@@ -41,7 +42,7 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 - **MVVM Pattern:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
 - **Dependency Injection:** `Microsoft.Extensions.Hosting` 9.0.2 (Decoupled Services, ViewModels, and Window lifecycle)
 - **Tray & Shell Integration:** `H.NotifyIcon.WinUI` 2.1.4
-- **Testing:** xUnit 2.9.2 + Moq 4.20.72 (100% test pass rate across 51 unit tests)
+- **Testing:** xUnit 2.9.2 + Moq 4.20.72 (100% test pass rate across 59 unit tests)
 - **Installer:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
 
 ---

@@ -23,6 +23,7 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 
 ### 2. Detección y Respaldo de Contexto IA (Claude)
 - **Exploración Jerárquica de Proyectos:** Búsqueda en anchura (BFS niveles 1 al 6) por repositorios y carpetas de trabajo, identificando archivos de directrices de proyecto (`CLAUDE.md`), habilidades de agentes, prompts de subagentes, memorias y hooks.
+- **Exclusión de Repositorios Anidados y Worktrees:** El traversal BFS detecta si un subdirectorio es raíz de un repositorio git —tanto repos estándar (carpeta `.git`) como worktrees vinculados (archivo `.git` generado por `git worktree add`)— y los omite por completo, evitando que los `CLAUDE.md` versionados se clasifiquen erróneamente como archivos no sincronizados.
 - **Protección Multicapa contra Fugas de Secretos:** Defensa en tres fases (lista negra de nombres de archivo, escaneo por expresiones regulares en los primeros 64 KB de contenido para tokens PAT/SSH/OAuth, y saneamiento estricto de configuraciones de servidores MCP).
 - **Detección de Seguimiento en Git:** Consultas en lotes de `git ls-files` para distinguir entre documentación versionada y notas locales o scratchpads sin seguimiento.
 - **Clasificación de Estado:** Cruza los archivos descubiertos contra el índice de hashes para etiquetarlos en tiempo real como *Nuevo*, *Modificado* o *Al día*.
@@ -41,7 +42,7 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 - **Patrón MVVM:** `CommunityToolkit.Mvvm` 8.4.0 (Generadores de código fuente para propiedades observables y comandos)
 - **Inyección de Dependencias:** `Microsoft.Extensions.Hosting` 9.0.2 (Servicios desacoplados, ViewModels y ciclo de vida de la ventana)
 - **Integración de Bandeja de Notificaciones:** `H.NotifyIcon.WinUI` 2.1.4
-- **Pruebas Unitarias:** xUnit 2.9.2 + Moq 4.20.72 (100% de éxito en 51 pruebas automatizadas)
+- **Pruebas Unitarias:** xUnit 2.9.2 + Moq 4.20.72 (100% de éxito en 59 pruebas automatizadas)
 - **Instalador:** Inno Setup 6.7 con compresión ultra LZMA2 y registro de inicio automático en Windows
 
 ---
