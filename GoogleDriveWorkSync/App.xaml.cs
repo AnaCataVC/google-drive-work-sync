@@ -85,6 +85,8 @@ public partial class App : Application
 
             // WinUI 3 Invariant: Initialize DispatcherQueue BEFORE creating MainWindow
             DispatcherQueue = DispatcherQueue.GetForCurrentThread();
+            DiagnosticLogger.IsUIThreadCheck = () => DispatcherQueue.HasThreadAccess;
+            DiagnosticLogger.UIThreadDispatcher = action => DispatcherQueue.TryEnqueue(() => action());
             LogTrace("DispatcherQueue obtained");
 
             Window = new MainWindow();
@@ -128,25 +130,11 @@ public partial class App : Application
 
     public static void LogTrace(string step)
     {
-        try
-        {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartSync", "Logs");
-            Directory.CreateDirectory(logDir);
-            File.AppendAllText(Path.Combine(logDir, "startup_diagnostic.log"), $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {step}\n");
-        }
-        catch { }
+        DiagnosticLogger.LogTrace(step);
     }
 
     public static void LogCrash(string source, Exception? ex, string? message)
     {
-        try
-        {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartSync", "Logs");
-            Directory.CreateDirectory(logDir);
-            var content = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] CRASH in {source}: {message}\nException: {ex}\nStackTrace: {ex?.StackTrace}\nInnerException: {ex?.InnerException}\n\n";
-            File.AppendAllText(Path.Combine(logDir, "startup_diagnostic.log"), content);
-            File.AppendAllText(Path.Combine(logDir, "crash.log"), content);
-        }
-        catch { }
+        DiagnosticLogger.LogCrash(source, ex, message);
     }
 }

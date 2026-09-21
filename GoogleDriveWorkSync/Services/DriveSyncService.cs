@@ -267,6 +267,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogCrash("DriveSyncService_RunSyncAsync", ex, "Error durante la sincronización");
             summary.Message = $"Error durante la sincronización: {ex.Message}";
         }
         finally
@@ -612,6 +613,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogCrash("DriveSyncService_ProcessBatchAsync", ex, $"Error al procesar lote de {batch.Count} archivos");
             var (category, friendlyMsg) = CategorizeError(ex, batch.Count == 1 ? batch[0].FilePath : $"{batch.Count} archivos en lote");
             foreach (var candidate in batch)
             {
@@ -927,6 +929,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     private FileClassification ClassifyFile(LocalFileMetadata file, bool forceFullSync)
     {
+        var statFileInfo = new FileInfo(file.FilePath);
+
         if (!forceFullSync && _settings.OnlyModifiedOrNew)
         {
             string? cachedHash = GetKnownHash(file.HashKey);
@@ -937,8 +941,16 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 return new FileClassification(FileClassificationOutcome.Unchanged, cachedHash, null, IsNew: false);
             }
 
-            var statFileInfo = new FileInfo(file.FilePath);
-            var hash = ComputeSha256(file.FilePath);
+            string hash;
+            try
+            {
+                hash = ComputeSha256(file.FilePath);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogCrash("DriveSyncService_ClassifyFile", ex, $"No se pudo calcular hash (archivo bloqueado o sin permiso): {file.FilePath}");
+                return new FileClassification(FileClassificationOutcome.Unchanged, null, statFileInfo, IsNew: false);
+            }
 
             if (cachedHash != null && string.Equals(cachedHash, hash, StringComparison.OrdinalIgnoreCase))
             {
@@ -949,8 +961,16 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
         else
         {
-            var statFileInfo = new FileInfo(file.FilePath);
-            var hash = ComputeSha256(file.FilePath);
+            string hash;
+            try
+            {
+                hash = ComputeSha256(file.FilePath);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogCrash("DriveSyncService_ClassifyFile", ex, $"No se pudo calcular hash (archivo bloqueado o sin permiso): {file.FilePath}");
+                return new FileClassification(FileClassificationOutcome.Unchanged, null, statFileInfo, IsNew: false);
+            }
             return new FileClassification(FileClassificationOutcome.NeedsUpload, hash, statFileInfo, IsNew: GetKnownHash(file.HashKey) == null);
         }
     }

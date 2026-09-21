@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GoogleDriveWorkSync.Helpers;
 using GoogleDriveWorkSync.Models;
 using GoogleDriveWorkSync.Services.Interfaces;
 
@@ -83,8 +84,11 @@ public partial class WorkSyncViewModel : ObservableObject
 
         _driveSyncService.SettingsChanged += (s, e) =>
         {
-            RefreshStatus();
-            _ = RefreshOutOfSync();
+            RunOnUIThread(() =>
+            {
+                RefreshStatus();
+                _ = RefreshOutOfSync();
+            });
         };
         _driveSyncService.SyncProgressChanged += OnSyncProgressChanged;
         _driveSyncService.SyncCompleted += OnSyncCompleted;
@@ -94,14 +98,55 @@ public partial class WorkSyncViewModel : ObservableObject
         _ = RefreshOutOfSync();
     }
 
+    private static void RunOnUIThread(Action action)
+    {
+        DiagnosticLogger.RunOnUIThread(action);
+    }
+
+    public static string GetDisplayErrorMessage(Exception ex, string fallback = "Error inesperado durante la operación.")
+    {
+        if (ex == null) return fallback;
+
+        var current = ex;
+        string candidate = string.Empty;
+
+        while (current != null)
+        {
+            var msg = current.Message?.Trim();
+            if (!string.IsNullOrWhiteSpace(msg) &&
+                !msg.Equals("Exception of type 'System.Exception' was thrown.", StringComparison.OrdinalIgnoreCase) &&
+                !msg.Equals("One or more errors occurred.", StringComparison.OrdinalIgnoreCase))
+            {
+                candidate = msg;
+            }
+            current = current.InnerException;
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = !string.IsNullOrWhiteSpace(ex.Message)
+                ? ex.Message.Trim()
+                : ex.GetType().Name;
+        }
+
+        candidate = candidate.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
+        while (candidate.Contains("  "))
+        {
+            candidate = candidate.Replace("  ", " ");
+        }
+
+        return string.IsNullOrWhiteSpace(candidate) ? fallback : candidate.Trim();
+    }
+
     public void RefreshStatus()
     {
         IsDriveSyncConfigured = _driveSyncService.IsConfigured;
         IsDriveSyncing = _driveSyncService.IsSyncing;
         UpdateSyncErrorsDisplay(_driveSyncService.LastSyncErrors);
 
-        var settings = _driveSyncService.Settings;
-        var driveFolders = settings.Sources
+        var settings = _driveSyncService.Settings ?? new DriveSyncSettings();
+        var sources = settings.Sources ?? new System.Collections.Generic.List<SyncSource>();
+        var driveFolders = sources
             .Where(s => !string.IsNullOrWhiteSpace(s.LocalFolderPath))
             .Select(s => s.EffectiveDestinationPrefix)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
@@ -141,34 +186,46 @@ public partial class WorkSyncViewModel : ObservableObject
 
     private void OnSyncProgressChanged(object? sender, SyncProgressReport report)
     {
-        DriveSyncProgress = report.Percentage;
-        DriveSyncDetailText = report.StatusMessage;
+        RunOnUIThread(() =>
+        {
+            DriveSyncProgress = report.Percentage;
+            DriveSyncDetailText = report.StatusMessage;
+        });
     }
 
     private void OnSyncCompleted(object? sender, SyncResultSummary summary)
     {
-        IsDriveSyncing = false;
-        DriveSyncProgress = 100;
-        DriveSyncDetailText = summary.Message;
-        RefreshStatus();
-        _ = RefreshOutOfSync();
+        RunOnUIThread(() =>
+        {
+            IsDriveSyncing = false;
+            DriveSyncProgress = 100;
+            DriveSyncDetailText = summary.Message;
+            RefreshStatus();
+            _ = RefreshOutOfSync();
+        });
     }
 
-    private void UpdateSyncErrorsDisplay(System.Collections.Generic.IReadOnlyList<SyncErrorItem> errors)
+    private void UpdateSyncErrorsDisplay(System.Collections.Generic.IReadOnlyList<SyncErrorItem>? errors)
     {
-        SyncErrorsList.Clear();
-        foreach (var error in errors)
+        RunOnUIThread(() =>
         {
-            SyncErrorsList.Add(error);
-        }
+            SyncErrorsList.Clear();
+            if (errors != null)
+            {
+                foreach (var error in errors)
+                {
+                    SyncErrorsList.Add(error);
+                }
+            }
 
-        SyncErrorsCount = errors.Count;
-        HasSyncErrors = SyncErrorsCount > 0;
-        SyncErrorsButtonText = SyncErrorsCount switch
-        {
-            1 => "1 archivo no pudo sincronizarse",
-            _ => $"{SyncErrorsCount} archivos no pudieron sincronizarse"
-        };
+            SyncErrorsCount = errors?.Count ?? 0;
+            HasSyncErrors = SyncErrorsCount > 0;
+            SyncErrorsButtonText = SyncErrorsCount switch
+            {
+                1 => "1 archivo no pudo sincronizarse",
+                _ => $"{SyncErrorsCount} archivos no pudieron sincronizarse"
+            };
+        });
     }
 
     /// <summary>
@@ -198,7 +255,8 @@ public partial class WorkSyncViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            DriveSyncDetailText = $"Error al sincronizar: {ex.Message}";
+            DiagnosticLogger.LogCrash("WorkSyncViewModel_SyncDriveNow", ex, "Error al sincronizar");
+            DriveSyncDetailText = $"Error al sincronizar: {GetDisplayErrorMessage(ex)}";
         }
         finally
         {
@@ -234,7 +292,8 @@ public partial class WorkSyncViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            DriveSyncDetailText = $"Error al forzar sincronización: {ex.Message}";
+            DiagnosticLogger.LogCrash("WorkSyncViewModel_ForceSyncDrive", ex, "Error al forzar sincronización");
+            DriveSyncDetailText = $"Error al forzar sincronización: {GetDisplayErrorMessage(ex)}";
         }
         finally
         {
@@ -248,36 +307,44 @@ public partial class WorkSyncViewModel : ObservableObject
     {
         if (!_driveSyncService.IsConfigured)
         {
-            OutOfSyncFilesList.Clear();
-            OutOfSyncCount = 0;
-            NewFilesCount = 0;
-            ModifiedFilesCount = 0;
-            HasOutOfSyncFiles = false;
-            SyncActionTitle = "Sincronizar desincronizados";
+            RunOnUIThread(() =>
+            {
+                OutOfSyncFilesList.Clear();
+                OutOfSyncCount = 0;
+                NewFilesCount = 0;
+                ModifiedFilesCount = 0;
+                HasOutOfSyncFiles = false;
+                SyncActionTitle = "Sincronizar desincronizados";
+            });
             return;
         }
 
         IsScanningOutOfSync = true;
         try
         {
-            var outOfSync = await Task.Run(() => _driveSyncService.PreviewOutOfSyncAsync());
-            OutOfSyncFilesList.Clear();
-            foreach (var file in outOfSync)
+            var outOfSync = await Task.Run(() => _driveSyncService.PreviewOutOfSyncAsync()) ?? new System.Collections.Generic.List<OutOfSyncFile>();
+            RunOnUIThread(() =>
             {
-                OutOfSyncFilesList.Add(file);
-            }
+                OutOfSyncFilesList.Clear();
+                const int maxPreviewItems = 200;
+                foreach (var file in outOfSync.Take(maxPreviewItems))
+                {
+                    OutOfSyncFilesList.Add(file);
+                }
 
-            OutOfSyncCount = OutOfSyncFilesList.Count;
-            NewFilesCount = OutOfSyncFilesList.Count(f => f.Reason == "Nuevo");
-            ModifiedFilesCount = OutOfSyncFilesList.Count(f => f.Reason == "Modificado");
-            HasOutOfSyncFiles = OutOfSyncCount > 0;
-            SyncActionTitle = HasOutOfSyncFiles
-                ? $"Sincronizar desincronizados ({OutOfSyncCount})"
-                : "Sincronizar desincronizados";
+                OutOfSyncCount = outOfSync.Count;
+                NewFilesCount = outOfSync.Count(f => f.Reason == "Nuevo");
+                ModifiedFilesCount = outOfSync.Count(f => f.Reason == "Modificado");
+                HasOutOfSyncFiles = OutOfSyncCount > 0;
+                SyncActionTitle = HasOutOfSyncFiles
+                    ? $"Sincronizar desincronizados ({OutOfSyncCount})"
+                    : "Sincronizar desincronizados";
+            });
         }
         catch (Exception ex)
         {
-            DriveSyncDetailText = $"Error al verificar archivos pendientes: {ex.Message}";
+            DiagnosticLogger.LogCrash("WorkSyncViewModel_RefreshOutOfSync", ex, "Error al verificar archivos pendientes");
+            DriveSyncDetailText = $"Error al verificar archivos pendientes: {GetDisplayErrorMessage(ex)}";
         }
         finally
         {
@@ -312,7 +379,8 @@ public partial class WorkSyncViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            DriveSyncDetailText = $"Error durante el reintento: {ex.Message}";
+            DiagnosticLogger.LogCrash("WorkSyncViewModel_RetrySyncErrors", ex, "Error durante el reintento");
+            DriveSyncDetailText = $"Error durante el reintento: {GetDisplayErrorMessage(ex)}";
         }
         finally
         {

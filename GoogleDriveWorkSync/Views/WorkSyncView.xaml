@@ -149,6 +149,7 @@
                         <!-- Left Info or Progress -->
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
                             <TextBlock Text="{x:Bind ViewModel.DriveSyncDetailText, Mode=OneWay}"
+                                       ToolTipService.ToolTip="{x:Bind ViewModel.DriveSyncDetailText, Mode=OneWay}"
                                        Style="{StaticResource BodyStrongTextBlockStyle}"
                                        TextTrimming="CharacterEllipsis" />
                             <ProgressBar Value="{x:Bind ViewModel.DriveSyncProgress, Mode=OneWay}" Maximum="100"

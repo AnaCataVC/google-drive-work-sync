@@ -16,9 +16,9 @@
     <CsWinRTAotOptimizerEnabled>false</CsWinRTAotOptimizerEnabled>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
 
     <!-- Exclude publish outputs and releases from item globs -->
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;releases\**;output\**</DefaultItemExcludes>
