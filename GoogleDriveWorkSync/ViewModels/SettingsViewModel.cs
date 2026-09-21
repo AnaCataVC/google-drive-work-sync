@@ -227,7 +227,7 @@ public partial class SettingsViewModel : ObservableObject
 
         try
         {
-            var result = await _driveSyncService.TestConnectionAsync(DriveWebAppUrl);
+            var result = await _driveSyncService.TestConnectionAsync(DriveWebAppUrl, DriveAuthToken);
             DriveConnectionStatus = result != null
                 ? "Conexión exitosa: archivo de prueba verificado en Drive."
                 : "Falló la prueba: el servidor no confirmó la subida.";

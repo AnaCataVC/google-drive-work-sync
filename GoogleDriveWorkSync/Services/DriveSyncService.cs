@@ -469,7 +469,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         return result;
     }
 
-    public async Task<string?> TestConnectionAsync(string webAppUrl, CancellationToken cancellationToken = default)
+    public async Task<string?> TestConnectionAsync(string webAppUrl, string? authToken = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(webAppUrl))
             throw new ArgumentException("La URL del Web App no puede estar vacía.");
@@ -478,7 +478,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         try
         {
             await File.WriteAllTextAsync(tempFile, $"Google Drive Work Sync - Prueba de conexión realizada el {DateTime.Now}", cancellationToken);
-            bool success = await UploadSingleFileInternalAsync(tempFile, "_healthcheck/connection-test.txt", "text/plain", webAppUrl, cancellationToken);
+            bool success = await UploadSingleFileInternalAsync(tempFile, "_healthcheck/connection-test.txt", "text/plain", webAppUrl, authToken, cancellationToken);
             return success ? "OK" : null;
         }
         finally
@@ -497,7 +497,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         CancellationToken cancellationToken = default)
     {
         if (!IsConfigured) return false;
-        return await UploadSingleFileInternalAsync(localFilePath, destinationRelativePath, mimeType, _settings.WebAppUrl, cancellationToken);
+        return await UploadSingleFileInternalAsync(localFilePath, destinationRelativePath, mimeType, _settings.WebAppUrl, null, cancellationToken);
     }
 
     private async Task<bool> UploadSingleFileInternalAsync(
@@ -505,6 +505,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string destinationRelativePath,
         string mimeType,
         string webAppUrl,
+        string? overrideAuthToken,
         CancellationToken cancellationToken)
     {
         var fileInfo = new FileInfo(localFilePath);
@@ -512,7 +513,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string fileName = Path.GetFileName(localFilePath);
 
         var candidate = new UploadCandidate(localFilePath, fileName, destinationRelativePath, destinationRelativePath, hash, fileInfo);
-        var results = await UploadBatchAsync(new List<UploadCandidate> { candidate }, webAppUrl, mimeType);
+        var results = await UploadBatchAsync(new List<UploadCandidate> { candidate }, webAppUrl, mimeType, overrideAuthToken);
         return results.Count > 0 && results[0].Success;
     }
 
@@ -625,7 +626,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     private async Task<List<BatchUploadResult>> UploadBatchAsync(
         List<UploadCandidate> batch,
         string webAppUrl,
-        string? overrideMimeType = null)
+        string? overrideMimeType = null,
+        string? overrideAuthToken = null)
     {
         await _uploadSemaphore.WaitAsync();
         try
@@ -646,9 +648,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             }
 
             var payload = new Dictionary<string, object?> { ["files"] = fileEntries };
-            if (!string.IsNullOrWhiteSpace(_settings.AuthToken))
+            string? tokenToUse = !string.IsNullOrWhiteSpace(overrideAuthToken)
+                ? overrideAuthToken.Trim()
+                : _settings.AuthToken;
+
+            if (!string.IsNullOrWhiteSpace(tokenToUse))
             {
-                payload["authToken"] = _settings.AuthToken.Trim();
+                payload["authToken"] = tokenToUse.Trim();
             }
 
             string requestJson = JsonSerializer.Serialize(payload);

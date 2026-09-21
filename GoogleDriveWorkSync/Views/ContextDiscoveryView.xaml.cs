@@ -45,6 +45,14 @@ public sealed partial class ContextDiscoveryView : Page
         }
     }
 
+    private void SelectOnlyCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string category)
+        {
+            ViewModel.SelectOnlyCategory(category);
+        }
+    }
+
     private async Task ShowOutOfSyncDialogAsync()
     {
         if (!await _dialogLock.WaitAsync(0)) return;

@@ -53,6 +53,27 @@ public partial class WorkSyncViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<OutOfSyncFile> _outOfSyncFilesList = new();
 
+    [ObservableProperty]
+    private int _outOfSyncCount;
+
+    [ObservableProperty]
+    private int _newFilesCount;
+
+    [ObservableProperty]
+    private int _modifiedFilesCount;
+
+    [ObservableProperty]
+    private int _monitoredFoldersCount;
+
+    [ObservableProperty]
+    private bool _hasOutOfSyncFiles;
+
+    [ObservableProperty]
+    private bool _isScanningOutOfSync;
+
+    [ObservableProperty]
+    private string _syncActionTitle = "Sincronizar desincronizados";
+
     public event EventHandler? OutOfSyncPreviewReady;
     public event EventHandler? SyncHistoryRequested;
 
@@ -60,12 +81,17 @@ public partial class WorkSyncViewModel : ObservableObject
     {
         _driveSyncService = driveSyncService;
 
-        _driveSyncService.SettingsChanged += (s, e) => RefreshStatus();
+        _driveSyncService.SettingsChanged += (s, e) =>
+        {
+            RefreshStatus();
+            _ = RefreshOutOfSync();
+        };
         _driveSyncService.SyncProgressChanged += OnSyncProgressChanged;
         _driveSyncService.SyncCompleted += OnSyncCompleted;
         _driveSyncService.SyncErrorsChanged += (s, errors) => UpdateSyncErrorsDisplay(errors);
 
         RefreshStatus();
+        _ = RefreshOutOfSync();
     }
 
     public void RefreshStatus()
@@ -88,6 +114,8 @@ public partial class WorkSyncViewModel : ObservableObject
         DriveSyncLastSyncText = settings.LastSyncTime.HasValue
             ? settings.LastSyncTime.Value.ToString("dd/MM HH:mm")
             : "Nunca";
+
+        MonitoredFoldersCount = driveFolders.Count;
 
         if (!IsDriveSyncConfigured)
         {
@@ -123,6 +151,7 @@ public partial class WorkSyncViewModel : ObservableObject
         DriveSyncProgress = 100;
         DriveSyncDetailText = summary.Message;
         RefreshStatus();
+        _ = RefreshOutOfSync();
     }
 
     private void UpdateSyncErrorsDisplay(System.Collections.Generic.IReadOnlyList<SyncErrorItem> errors)
@@ -215,30 +244,52 @@ public partial class WorkSyncViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public async Task PreviewOutOfSync()
+    public async Task RefreshOutOfSync()
     {
         if (!_driveSyncService.IsConfigured)
         {
-            DriveSyncDetailText = "Configura la URL y las carpetas en Ajustes antes de revisar.";
+            OutOfSyncFilesList.Clear();
+            OutOfSyncCount = 0;
+            NewFilesCount = 0;
+            ModifiedFilesCount = 0;
+            HasOutOfSyncFiles = false;
+            SyncActionTitle = "Sincronizar desincronizados";
             return;
         }
 
+        IsScanningOutOfSync = true;
         try
         {
             var outOfSync = await Task.Run(() => _driveSyncService.PreviewOutOfSyncAsync());
-
             OutOfSyncFilesList.Clear();
             foreach (var file in outOfSync)
             {
                 OutOfSyncFilesList.Add(file);
             }
 
-            OutOfSyncPreviewReady?.Invoke(this, EventArgs.Empty);
+            OutOfSyncCount = OutOfSyncFilesList.Count;
+            NewFilesCount = OutOfSyncFilesList.Count(f => f.Reason == "Nuevo");
+            ModifiedFilesCount = OutOfSyncFilesList.Count(f => f.Reason == "Modificado");
+            HasOutOfSyncFiles = OutOfSyncCount > 0;
+            SyncActionTitle = HasOutOfSyncFiles
+                ? $"Sincronizar desincronizados ({OutOfSyncCount})"
+                : "Sincronizar desincronizados";
         }
         catch (Exception ex)
         {
-            DriveSyncDetailText = $"Error al revisar archivos desincronizados: {ex.Message}";
+            DriveSyncDetailText = $"Error al verificar archivos pendientes: {ex.Message}";
         }
+        finally
+        {
+            IsScanningOutOfSync = false;
+        }
+    }
+
+    [RelayCommand]
+    public async Task PreviewOutOfSync()
+    {
+        await RefreshOutOfSync();
+        OutOfSyncPreviewReady?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

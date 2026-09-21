@@ -303,4 +303,13 @@ public class DriveSyncServiceTests : IDisposable
 
         Assert.Equal(indexCountBefore, hashIndex.Count);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task TestConnectionAsync_ShouldThrow_WhenUrlIsNullOrEmpty(string? url)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.TestConnectionAsync(url!));
+    }
 }

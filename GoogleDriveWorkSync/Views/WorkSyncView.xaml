@@ -10,7 +10,7 @@
     mc:Ignorable="d"
     Background="Transparent">
 
-    <Grid Padding="36">
+    <Grid Padding="36,24,36,36">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -18,131 +18,291 @@
 
         <!-- Header -->
         <Grid Grid.Row="0" Margin="0,0,0,20">
-            <StackPanel Spacing="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Spacing="4">
                 <TextBlock Text="Sincronización de Archivos de Trabajo" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock Text="Copia de seguridad incremental por hash SHA-256 hacia Google Drive con subida por lotes."
                            Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
+
+            <!-- Quick Global Actions -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Button Command="{x:Bind ViewModel.RefreshOutOfSyncCommand}" ToolTipService.ToolTip="Comprobar cambios locales">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsScanningOutOfSync, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.IsScanningOutOfSync, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                      Width="16" Height="16" />
+                        <FontIcon Glyph="&#xE72C;" FontSize="13"
+                                  Visibility="{x:Bind ViewModel.IsScanningOutOfSync, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+                        <TextBlock Text="Actualizar estado" />
+                    </StackPanel>
+                </Button>
+
+                <Button Command="{x:Bind ViewModel.OpenDriveFolderCommand}"
+                        Visibility="{x:Bind ViewModel.IsDriveSyncConfigured, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8A7;" FontSize="13" />
+                        <TextBlock Text="Abrir Drive" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         </Grid>
 
-        <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="20" MaxWidth="860" HorizontalAlignment="Left">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="20" HorizontalAlignment="Stretch">
 
-                <!-- Main Status Card -->
+                <!-- KPI Metric Cards Grid -->
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Card 1: Estado General -->
+                    <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Estado" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.DriveSyncStatusText, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="{x:Bind ViewModel.DriveSyncFoldersDisplay, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis" MaxLines="1" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Card 2: Total Desincronizados -->
+                    <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE898;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Por sincronizar" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.OutOfSyncCount, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="Archivos pendientes" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Card 3: Nuevos vs Modificados -->
+                    <Border Grid.Column="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7BA;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Composición" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.NewFilesCount, Mode=OneWay}" FontWeight="SemiBold" Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="nuevos" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="•" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.ModifiedFilesCount, Mode=OneWay}" FontWeight="SemiBold" Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="modificados" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="Diferencia detectada por SHA-256" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Card 4: Último Respaldo -->
+                    <Border Grid.Column="3" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE823;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Último respaldo" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.DriveSyncLastSyncText, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="En Google Drive" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Sync Control Action Bar Card -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="20">
-                    <StackPanel Spacing="16">
-                        <!-- Top status row -->
-                        <Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE753;" FontSize="24" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                                <StackPanel>
-                                    <TextBlock Text="Estado del Respaldo" Style="{StaticResource BodyStrongTextBlockStyle}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.DriveSyncFoldersDisplay, Mode=OneWay}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               TextTrimming="CharacterEllipsis" MaxWidth="500"/>
-                                </StackPanel>
-                            </StackPanel>
+                        BorderThickness="1" CornerRadius="8" Padding="20,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" VerticalAlignment="Center">
-                                <TextBlock Text="{x:Bind ViewModel.DriveSyncStatusText, Mode=OneWay}"
-                                           Style="{StaticResource BodyStrongTextBlockStyle}"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Progress Section -->
-                        <StackPanel Spacing="8" Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <ProgressBar Value="{x:Bind ViewModel.DriveSyncProgress, Mode=OneWay}" Maximum="100" />
+                        <!-- Left Info or Progress -->
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
                             <TextBlock Text="{x:Bind ViewModel.DriveSyncDetailText, Mode=OneWay}"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       TextTrimming="CharacterEllipsis"/>
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <ProgressBar Value="{x:Bind ViewModel.DriveSyncProgress, Mode=OneWay}" Maximum="100"
+                                         Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                         Margin="0,4,16,0" />
                         </StackPanel>
 
-                        <!-- Sync Errors Banner -->
-                        <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
-                                BorderBrush="{ThemeResource SystemFillColorCriticalBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="14,10"
-                                Visibility="{x:Bind ViewModel.HasSyncErrors, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <Grid>
-                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE783;" Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="16"/>
-                                    <TextBlock Text="{x:Bind ViewModel.SyncErrorsButtonText, Mode=OneWay}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
-                                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                               FontWeight="SemiBold"
-                                               VerticalAlignment="Center"/>
+                        <!-- Right Actions -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Button Content="Cancelar" Command="{x:Bind ViewModel.CancelDriveSyncCommand}"
+                                    Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+                            <!-- Primary Action Button -->
+                            <Button Command="{x:Bind ViewModel.SyncDriveNowCommand}"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE753;" FontSize="14"/>
+                                    <TextBlock Text="{x:Bind ViewModel.SyncActionTitle, Mode=OneWay}" />
                                 </StackPanel>
+                            </Button>
 
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                                    <Button Content="Ver detalles" Click="ShowSyncErrorsDialog_Click"
-                                            Padding="10,4" FontSize="12"/>
-                                    <Button Content="Reintentar errores" Command="{x:Bind ViewModel.RetrySyncErrorsCommand}"
-                                            IsEnabled="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"
-                                            Style="{StaticResource AccentButtonStyle}"
-                                            Padding="10,4" FontSize="12"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-
-                        <!-- Controls Row -->
-                        <Grid Margin="0,4,0,0">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <TextBlock Text="Último respaldo:" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <TextBlock Text="{x:Bind ViewModel.DriveSyncLastSyncText, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold"/>
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                                <Button Command="{x:Bind ViewModel.OpenDriveFolderCommand}"
-                                        Visibility="{x:Bind ViewModel.IsDriveSyncConfigured, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE8A7;" FontSize="13" />
-                                        <TextBlock Text="Abrir Drive" />
-                                    </StackPanel>
-                                </Button>
-
-                                <Button Content="Cancelar" Command="{x:Bind ViewModel.CancelDriveSyncCommand}"
-                                        Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
-
-                                <!-- PRIMARY ACTION: Sync only new or modified (Incremental default) -->
-                                <Button Command="{x:Bind ViewModel.SyncDriveNowCommand}"
-                                        Style="{StaticResource AccentButtonStyle}"
-                                        Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <FontIcon Glyph="&#xE753;" FontSize="14"/>
-                                        <TextBlock Text="Sincronizar desincronizados" />
-                                    </StackPanel>
-                                </Button>
-
-                                <!-- Secondary options dropdown -->
-                                <Button Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                        Padding="8,6">
-                                    <FontIcon Glyph="&#xE712;" FontSize="13"/>
-                                    <Button.Flyout>
-                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                            <MenuFlyoutItem Text="Ver qué falta por sincronizar"
-                                                            Command="{x:Bind ViewModel.PreviewOutOfSyncCommand}">
-                                                <MenuFlyoutItem.Icon>
-                                                    <FontIcon Glyph="&#xE71C;" />
-                                                </MenuFlyoutItem.Icon>
-                                            </MenuFlyoutItem>
-                                            <MenuFlyoutSeparator />
-                                            <MenuFlyoutItem Text="Forzar sincronización total (Re-subir todo)"
-                                                            Command="{x:Bind ViewModel.ForceSyncDriveCommand}">
-                                                <MenuFlyoutItem.Icon>
-                                                    <FontIcon Glyph="&#xE72C;" />
-                                                </MenuFlyoutItem.Icon>
-                                            </MenuFlyoutItem>
-                                        </MenuFlyout>
-                                    </Button.Flyout>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
+                            <!-- Secondary Dropdown -->
+                            <Button Visibility="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    Padding="10,6">
+                                <FontIcon Glyph="&#xE712;" FontSize="13"/>
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutItem Text="Ver qué falta por sincronizar (Ventana emergente)"
+                                                        Command="{x:Bind ViewModel.PreviewOutOfSyncCommand}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE71C;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Forzar sincronización total (Re-subir todo)"
+                                                        Command="{x:Bind ViewModel.ForceSyncDriveCommand}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE72C;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
                 </Border>
+
+                <!-- Sync Errors Banner -->
+                <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                        BorderBrush="{ThemeResource SystemFillColorCriticalBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="16,12"
+                        Visibility="{x:Bind ViewModel.HasSyncErrors, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE783;" Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="18"/>
+                            <TextBlock Text="{x:Bind ViewModel.SyncErrorsButtonText, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="Ver detalles" Click="ShowSyncErrorsDialog_Click" Padding="12,5" FontSize="12"/>
+                            <Button Content="Reintentar errores" Command="{x:Bind ViewModel.RetrySyncErrorsCommand}"
+                                    IsEnabled="{x:Bind ViewModel.IsDriveSyncing, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Padding="12,5" FontSize="12"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Out of Sync Files Live List Section -->
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <TextBlock Text="Archivos pendientes de sincronización" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind ViewModel.OutOfSyncCount, Mode=OneWay}"
+                                           FontSize="12" FontWeight="Bold" Foreground="White" />
+                            </Border>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1" Text="Solo archivos nuevos o con contenido modificado"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Items List (Shown when there are out-of-sync files) -->
+                    <ListView ItemsSource="{x:Bind ViewModel.OutOfSyncFilesList, Mode=OneWay}"
+                              SelectionMode="None"
+                              Visibility="{x:Bind ViewModel.HasOutOfSyncFiles, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                              Padding="0" HorizontalAlignment="Stretch">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:OutOfSyncFile">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="16,10" Margin="0,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <FontIcon Grid.Column="0" Glyph="&#xE8A5;" FontSize="18" Margin="0,0,14,0"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind FileName}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="{x:Bind RelativePath}" Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind FormattedFileSize}" Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                            <Border CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                                                    Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                                <TextBlock Text="{x:Bind Reason}" FontSize="11" FontWeight="SemiBold" Foreground="White" />
+                                            </Border>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Clean and Synced Banner (Shown when no files are pending) -->
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="32,28"
+                            Visibility="{x:Bind ViewModel.HasOutOfSyncFiles, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <FontIcon Glyph="&#xE73E;" FontSize="36" Foreground="{ThemeResource SystemFillColorSuccessBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="¡Todo tu trabajo está sincronizado!"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="No hay archivos nuevos ni modificados pendientes de respaldar en Google Drive."
+                                       Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
 
             </StackPanel>
         </ScrollViewer>

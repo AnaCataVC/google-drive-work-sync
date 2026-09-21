@@ -38,7 +38,7 @@ public interface IDriveSyncService
         CancellationToken cancellationToken = default,
         SyncSource? onlySource = null);
 
-    Task<string?> TestConnectionAsync(string webAppUrl, CancellationToken cancellationToken = default);
+    Task<string?> TestConnectionAsync(string webAppUrl, string? authToken = null, CancellationToken cancellationToken = default);
 
     // Helpers for checking if candidate or individual file is out of sync
     CandidateSyncStatus EvaluateFileStatus(string filePath, string destinationKey);

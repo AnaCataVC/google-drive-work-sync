@@ -21,6 +21,7 @@ public class ClaudeOutOfSyncTests : IDisposable
 
         _settingsScope = new TempSettingsFileScope(Path.Combine(_testDir, "test_settings.json"));
         _driveSyncService = new DriveSyncService();
+        _driveSyncService.ClearHashIndex();
         _discoveryService = new ClaudeDiscoveryService(_driveSyncService, "git", _testDir);
     }
 
