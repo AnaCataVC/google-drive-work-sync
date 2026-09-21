@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -14,6 +15,12 @@ namespace GoogleDriveWorkSync.ViewModels;
 
 public partial class SettingsViewModel : ObservableObject
 {
+    // Auto-save debounce: cancels the pending save whenever a new property
+    // change arrives, then reschedules after 800 ms of inactivity.
+    private CancellationTokenSource _autoSaveCts = new();
+    private bool _suppressConfirmation;
+    private bool _isLoading;
+
     private readonly IDriveSyncService _driveSyncService;
     private readonly ISyncScheduleService _scheduleService;
     private readonly IUpdateService _updateService;
@@ -128,44 +135,52 @@ public partial class SettingsViewModel : ObservableObject
 
     public void LoadSettings()
     {
-        var s = _driveSyncService.Settings;
-        DriveWebAppUrl = s.WebAppUrl;
-        DriveAuthToken = s.AuthToken;
-        DriveFolderUrl = s.DriveFolderUrl;
-        DriveIncludedExtensions = s.IncludedExtensions;
-        DriveExcludedExtensions = s.ExcludedExtensions;
-        DriveExcludedFolders = s.ExcludedFolders;
-        DriveMaxFileSizeMb = s.MaxFileSizeMb;
-        DriveOnlyModifiedOrNew = s.OnlyModifiedOrNew;
-        ClaudeDestinationPrefix = s.ClaudeDestinationPrefix;
-        ClaudeNoRepoBucketName = s.ClaudeNoRepoBucketName;
-        ClaudeConfigBucketName = s.ClaudeConfigBucketName;
-
-        DriveSyncSources.Clear();
-        foreach (var src in s.Sources)
+        _isLoading = true;
+        try
         {
-            DriveSyncSources.Add(new SyncSource
+            var s = _driveSyncService.Settings;
+            DriveWebAppUrl = s.WebAppUrl;
+            DriveAuthToken = s.AuthToken;
+            DriveFolderUrl = s.DriveFolderUrl;
+            DriveIncludedExtensions = s.IncludedExtensions;
+            DriveExcludedExtensions = s.ExcludedExtensions;
+            DriveExcludedFolders = s.ExcludedFolders;
+            DriveMaxFileSizeMb = s.MaxFileSizeMb;
+            DriveOnlyModifiedOrNew = s.OnlyModifiedOrNew;
+            ClaudeDestinationPrefix = s.ClaudeDestinationPrefix;
+            ClaudeNoRepoBucketName = s.ClaudeNoRepoBucketName;
+            ClaudeConfigBucketName = s.ClaudeConfigBucketName;
+
+            DriveSyncSources.Clear();
+            foreach (var src in s.Sources)
             {
-                LocalFolderPath = src.LocalFolderPath,
-                DestinationPrefix = src.DestinationPrefix
-            });
+                DriveSyncSources.Add(new SyncSource
+                {
+                    LocalFolderPath = src.LocalFolderPath,
+                    DestinationPrefix = src.DestinationPrefix
+                });
+            }
+
+            var sch = _scheduleService.Settings;
+            IsScheduleEnabled = sch.IsEnabled;
+            ScheduledTime = sch.ScheduledTime;
+            SyncClaudeContextAlso = sch.SyncClaudeContextAlso;
+
+            IsMonday = sch.ScheduledDays.Contains(DayOfWeek.Monday);
+            IsTuesday = sch.ScheduledDays.Contains(DayOfWeek.Tuesday);
+            IsWednesday = sch.ScheduledDays.Contains(DayOfWeek.Wednesday);
+            IsThursday = sch.ScheduledDays.Contains(DayOfWeek.Thursday);
+            IsFriday = sch.ScheduledDays.Contains(DayOfWeek.Friday);
+            IsSaturday = sch.ScheduledDays.Contains(DayOfWeek.Saturday);
+            IsSunday = sch.ScheduledDays.Contains(DayOfWeek.Sunday);
+
+            IsAutostartEnabled = AutostartHelper.IsAutostartEnabled();
+            CurrentVersion = _updateService.CurrentAppVersion;
         }
-
-        var sch = _scheduleService.Settings;
-        IsScheduleEnabled = sch.IsEnabled;
-        ScheduledTime = sch.ScheduledTime;
-        SyncClaudeContextAlso = sch.SyncClaudeContextAlso;
-
-        IsMonday = sch.ScheduledDays.Contains(DayOfWeek.Monday);
-        IsTuesday = sch.ScheduledDays.Contains(DayOfWeek.Tuesday);
-        IsWednesday = sch.ScheduledDays.Contains(DayOfWeek.Wednesday);
-        IsThursday = sch.ScheduledDays.Contains(DayOfWeek.Thursday);
-        IsFriday = sch.ScheduledDays.Contains(DayOfWeek.Friday);
-        IsSaturday = sch.ScheduledDays.Contains(DayOfWeek.Saturday);
-        IsSunday = sch.ScheduledDays.Contains(DayOfWeek.Sunday);
-
-        IsAutostartEnabled = AutostartHelper.IsAutostartEnabled();
-        CurrentVersion = _updateService.CurrentAppVersion;
+        finally
+        {
+            _isLoading = false;
+        }
     }
 
     [RelayCommand]
@@ -209,8 +224,58 @@ public partial class SettingsViewModel : ObservableObject
 
         AutostartHelper.SetAutostart(IsAutostartEnabled);
 
-        SaveConfirmationMessage = "Ajustes guardados correctamente.";
-        ShowSaveConfirmation = true;
+        if (!_suppressConfirmation)
+        {
+            SaveConfirmationMessage = "Ajustes guardados correctamente.";
+            ShowSaveConfirmation = true;
+        }
+    }
+
+    /// <summary>
+    /// Triggered on every observable property change.
+    /// Skips read-only / status properties and load-time population, then
+    /// starts an 800 ms debounce timer that calls SaveAllSettings silently.
+    /// </summary>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+
+        // Skip properties that should never trigger a save.
+        if (_isLoading) return;
+        if (e.PropertyName is
+            nameof(IsDriveTesting) or
+            nameof(DriveConnectionStatus) or
+            nameof(ShowSaveConfirmation) or
+            nameof(SaveConfirmationMessage) or
+            nameof(IsCheckingUpdate) or
+            nameof(UpdateStatusText) or
+            nameof(CurrentVersion))
+        {
+            return;
+        }
+
+        // Restart the debounce timer.
+        var cts = new CancellationTokenSource();
+        var old = Interlocked.Exchange(ref _autoSaveCts, cts);
+        old.Cancel();
+        old.Dispose();
+
+        _ = AutoSaveAsync(cts.Token);
+    }
+
+    private async Task AutoSaveAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(800, token);
+            _suppressConfirmation = true;
+            try { SaveAllSettings(); }
+            finally { _suppressConfirmation = false; }
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer change arrived before the 800 ms window — no-op.
+        }
     }
 
     [RelayCommand]
