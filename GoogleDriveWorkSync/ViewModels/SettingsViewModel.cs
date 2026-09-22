@@ -271,6 +271,9 @@ public partial class SettingsViewModel : ObservableObject
             _suppressConfirmation = true;
             try { SaveAllSettings(); }
             finally { _suppressConfirmation = false; }
+
+            SaveConfirmationMessage = "Guardado automáticamente.";
+            ShowSaveConfirmation = true;
         }
         catch (OperationCanceledException)
         {

@@ -274,4 +274,40 @@ public class ClaudeDiscoveryServiceTests : IDisposable
         Assert.DoesNotContain("sk-live-should-be-redacted", sanitized);
         Assert.DoesNotContain("should-not-appear", sanitized);
     }
+
+    [Fact]
+    public void BuildDriveRelativePath_UsesCustomBucketNamesFromSettings()
+    {
+        var customSettings = new DriveSyncSettings
+        {
+            ClaudeDestinationPrefix = "custom-claude-root",
+            ClaudeNoRepoBucketName = "untracked-notes",
+            ClaudeConfigBucketName = "global-ai-configs"
+        };
+        _driveSyncMock.Setup(d => d.Settings).Returns(customSettings);
+
+        var service = CreateService();
+
+        var noRepoCandidate = new ClaudeDiscoveryCandidate
+        {
+            FilePath = Path.Combine(_tempDir, "CLAUDE.md"),
+            RelativePath = "CLAUDE.md",
+            RepositoryRoot = string.Empty,
+            Category = ClaudeDiscoveryCategory.Context
+        };
+
+        var configCandidate = new ClaudeDiscoveryCandidate
+        {
+            FilePath = Path.Combine(_fakeHomeDir, ".claude", "skills", "test", "SKILL.md"),
+            RelativePath = "skills/test/SKILL.md",
+            RepositoryRoot = string.Empty,
+            Category = ClaudeDiscoveryCategory.Skill
+        };
+
+        string noRepoPath = service.BuildDriveRelativePath(noRepoCandidate);
+        string configPath = service.BuildDriveRelativePath(configCandidate);
+
+        Assert.Equal("custom-claude-root/untracked-notes/CLAUDE.md", noRepoPath);
+        Assert.Equal("custom-claude-root/global-ai-configs/skills/test/SKILL.md", configPath);
+    }
 }

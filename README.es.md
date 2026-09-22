@@ -42,7 +42,7 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 - **Patrón MVVM:** `CommunityToolkit.Mvvm` 8.4.0 (Generadores de código fuente para propiedades observables y comandos)
 - **Inyección de Dependencias:** `Microsoft.Extensions.Hosting` 9.0.2 (Servicios desacoplados, ViewModels y ciclo de vida de la ventana)
 - **Integración de Bandeja de Notificaciones:** `H.NotifyIcon.WinUI` 2.1.4
-- **Pruebas Unitarias:** xUnit 2.9.2 + Moq 4.20.72 (100% de éxito en 59 pruebas automatizadas)
+- **Pruebas Unitarias:** xUnit 2.9.2 + Moq 4.20.72 (100% de éxito en 66 pruebas automatizadas)
 - **Instalador:** Inno Setup 6.7 con compresión ultra LZMA2 y registro de inicio automático en Windows
 
 ---

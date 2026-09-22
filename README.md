@@ -42,7 +42,7 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 - **MVVM Pattern:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
 - **Dependency Injection:** `Microsoft.Extensions.Hosting` 9.0.2 (Decoupled Services, ViewModels, and Window lifecycle)
 - **Tray & Shell Integration:** `H.NotifyIcon.WinUI` 2.1.4
-- **Testing:** xUnit 2.9.2 + Moq 4.20.72 (100% test pass rate across 59 unit tests)
+- **Testing:** xUnit 2.9.2 + Moq 4.20.72 (100% test pass rate across 66 unit tests)
 - **Installer:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
 
 ---
