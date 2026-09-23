@@ -1004,7 +1004,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             if (!_hashIndex.TryGetValue(hashKey, out var entry))
                 return false;
 
-            if (entry.LastWriteTimeUtcTicks == 0L || entry.FileSize < 1024)
+            // Skip entries that were saved without metadata (legacy hash-only format).
+            if (entry.LastWriteTimeUtcTicks == 0L)
                 return false;
 
             try
