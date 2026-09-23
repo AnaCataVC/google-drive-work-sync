@@ -19,6 +19,15 @@ public static class LocalSettingsHelper
     private static readonly object LockObj = new();
     private static Dictionary<string, string> _cache = new();
 
+    /// <summary>
+    /// Shared serialization options that include converters for types not natively
+    /// supported by System.Text.Json (e.g. TimeSpan).
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        Converters = { new TimeSpanJsonConverter() }
+    };
+
     public static string SettingsFilePath
     {
         get => _customSettingsFilePath ?? Path.Combine(DefaultSettingsDir, "settings.json");
@@ -103,7 +112,7 @@ public static class LocalSettingsHelper
             var json = Get(key);
             if (!string.IsNullOrEmpty(json))
             {
-                var value = JsonSerializer.Deserialize<T>(json);
+                var value = JsonSerializer.Deserialize<T>(json, SerializerOptions);
                 if (value != null) return value;
             }
         }
@@ -119,7 +128,7 @@ public static class LocalSettingsHelper
     {
         try
         {
-            Set(key, JsonSerializer.Serialize(value));
+            Set(key, JsonSerializer.Serialize(value, SerializerOptions));
         }
         catch
         {
