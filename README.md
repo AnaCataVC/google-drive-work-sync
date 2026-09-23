@@ -69,7 +69,7 @@ Google Apps Script Web Apps receive JSON payloads via HTTP POST. Rather than sen
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (included in self-contained installer)
 
 ### Quick Install (Setup Executable)
-1. Download `GoogleDriveWorkSync-Setup-v1.1.0.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Download `GoogleDriveWorkSync-Setup-v1.1.1.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Run the installer. You can optionally check "Iniciar Google Drive Work Sync automáticamente al iniciar sesión en Windows".
 3. Launch the application from the Start Menu or Desktop.
 
@@ -108,3 +108,4 @@ Navigate to **Ajustes** (Settings) in the application:
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
