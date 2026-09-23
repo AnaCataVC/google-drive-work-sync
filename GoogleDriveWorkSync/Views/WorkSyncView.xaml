@@ -74,6 +74,7 @@
                                 <TextBlock Text="Estado" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </StackPanel>
                             <TextBlock Text="{x:Bind ViewModel.DriveSyncStatusText, Mode=OneWay}"
+                                       Foreground="{x:Bind ViewModel.DriveSyncStatusColor, Mode=OneWay, Converter={StaticResource HexToSolidColorBrushConverter}}"
                                        Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
                             <TextBlock Text="{x:Bind ViewModel.DriveSyncFoldersDisplay, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"

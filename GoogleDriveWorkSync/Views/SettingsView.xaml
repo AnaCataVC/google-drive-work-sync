@@ -158,7 +158,36 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Advanced Filters and Claude settings -->
+                <!-- Claude AI Context Card -->
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Contexto IA (Claude Code / Descopia)" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Organización de carpetas de destino en Google Drive para archivos CLAUDE.md, memorias, skills y agentes."
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                            <TextBox Header="Carpeta raíz en Drive para archivos de Contexto IA"
+                                     ToolTipService.ToolTip="Carpeta principal dentro de tu Drive donde se almacenan todos los archivos de contexto de Claude."
+                                     Text="{x:Bind ViewModel.ClaudeDestinationPrefix, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="ej: claude-md-unversioned" />
+
+                            <TextBox Header="Subcarpeta para archivos CLAUDE.md sin repositorio Git"
+                                     ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de contexto que no pertenecen a ningún repositorio Git detectado."
+                                     Text="{x:Bind ViewModel.ClaudeNoRepoBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="ej: _sin-repo" />
+
+                            <TextBox Header="Subcarpeta para configuración global de Claude (skills, hooks, memorias)"
+                                     ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de configuración global de Claude: skills, hooks, agentes y memorias sin repo."
+                                     Text="{x:Bind ViewModel.ClaudeConfigBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="ej: _claude-config" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Advanced Filters -->
                 <Expander Header="Filtros y opciones avanzadas" HorizontalAlignment="Stretch">
                     <StackPanel Spacing="14" Padding="0,12,0,0">
                         <TextBox Header="Extensiones permitidas (Whitelist, ej: .pdf, .docx)"
@@ -172,21 +201,6 @@
 
                         <NumberBox Header="Tamaño máximo por archivo (MB, máx 25)"
                                    Value="{x:Bind ViewModel.DriveMaxFileSizeMb, Mode=TwoWay}" Minimum="1" Maximum="25" />
-
-                        <TextBox Header="Carpeta raíz en Drive para archivos de Contexto IA (Claude)"
-                                 ToolTipService.ToolTip="Carpeta principal dentro de tu Drive donde se almacenan todos los archivos de contexto de Claude."
-                                 Text="{x:Bind ViewModel.ClaudeDestinationPrefix, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="ej: claude-md-unversioned" />
-
-                        <TextBox Header="Subcarpeta para archivos CLAUDE.md sin repositorio Git"
-                                 ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de contexto que no pertenecen a ningún repositorio Git detectado."
-                                 Text="{x:Bind ViewModel.ClaudeNoRepoBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="ej: _sin-repo" />
-
-                        <TextBox Header="Subcarpeta para configuración global de Claude (skills, hooks, memorias)"
-                                 ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de configuración global de Claude: skills, hooks, agentes y memorias sin repo."
-                                 Text="{x:Bind ViewModel.ClaudeConfigBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="ej: _claude-config" />
 
                         <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
                             <Grid ColumnSpacing="12">

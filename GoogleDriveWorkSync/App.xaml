@@ -13,6 +13,7 @@
             <helpers:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
             <helpers:InverseBoolConverter x:Key="InverseBoolConverter" />
             <helpers:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+            <helpers:HexToSolidColorBrushConverter x:Key="HexToSolidColorBrushConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
