@@ -177,6 +177,11 @@ public partial class WorkSyncViewModel : ObservableObject
             DriveSyncStatusText = $"Con errores ({SyncErrorsCount})";
             DriveSyncStatusColor = "#D13438"; // Red
         }
+        else if (OutOfSyncCount > 0)
+        {
+            DriveSyncStatusText = "Por sincronizar";
+            DriveSyncStatusColor = "#0078D4"; // Blue/Accent
+        }
         else
         {
             DriveSyncStatusText = "Al día";
@@ -339,6 +344,7 @@ public partial class WorkSyncViewModel : ObservableObject
                 SyncActionTitle = HasOutOfSyncFiles
                     ? $"Sincronizar desincronizados ({OutOfSyncCount})"
                     : "Sincronizar desincronizados";
+                RefreshStatus();
             });
         }
         catch (Exception ex)
