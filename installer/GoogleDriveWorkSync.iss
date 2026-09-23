@@ -3,7 +3,7 @@
 ; Architecture: Windows x64 (Unpackaged WinUI 3)
 
 #define MyAppName "Google Drive Work Sync"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "AnaCataVC"
 #define MyAppURL "https://github.com/AnaCataVC/google-drive-work-sync"
 #define MyAppExeName "GoogleDriveWorkSync.exe"
@@ -56,4 +56,5 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
 

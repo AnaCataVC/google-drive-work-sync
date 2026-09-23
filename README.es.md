@@ -69,7 +69,7 @@ Las Web Apps de Google Apps Script reciben cargas útiles JSON vía HTTP POST. E
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (incluido en el instalador autónomo)
 
 ### Instalación Rápida (Instalador Único)
-1. Descarga `GoogleDriveWorkSync-Setup-v1.1.1.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Descarga `GoogleDriveWorkSync-Setup-v1.2.0.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Ejecuta el instalador. Puedes marcar la opción de inicio automático con Windows si lo deseas.
 3. Abre la aplicación desde el Menú Inicio o el Escritorio.
 
@@ -108,4 +108,5 @@ Dirígete a la pestaña de **Ajustes** en la aplicación:
 ## Licencia
 
 Este proyecto está bajo la Licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más información.
+
 
