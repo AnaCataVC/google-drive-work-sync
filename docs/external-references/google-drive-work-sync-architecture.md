@@ -1,12 +1,12 @@
 > **Created:** 2026-09-21
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-23
 
 # Google Drive Work Sync: Architecture & Technology Research
 
 ## 1. Overview & Objective
 `Google Drive Work Sync` is a Windows 11 desktop application consolidating:
-1. **Work Files Sync (`work-activity-panel` heritage):** Incremental backup with SHA-256 caching (`sync_hashes.json`), metadata fast-path (`LastWriteTimeUtc` + `FileSize`), batching (max 8 files or 9 MB payload per POST), multi-source local folders mapped to Drive subfolders, retry with exponential backoff for 429/500/503, error tracking (`sync_errors.json`), and probe-file connection testing.
-2. **AI Context Backup (`claude-desktop-tools` heritage):** Multi-level BFS discovery of `CLAUDE.md`, `references/`, `skills/`, `agents/`, `hooks/`, `agent-memory/`, `project-memory/`, `settings.json`, `keybindings.json`, `mcpServers`. Multi-layer secret redaction (filename keywords, 64KB content regex for AWS/GitHub/SSH/Slack keys, fail-closed MCP sanitization). Git untracked detection via `git ls-files` in batches of 50. Granular category and item selection.
+1. **Work Files Sync (`work-activity-panel` heritage):** Incremental backup with SHA-256 caching (`sync_hashes.json`), metadata fast-path (`LastWriteTimeUtc` + `FileSize`), batching (max 8 files or 9 MB payload per POST), multi-source local folders mapped to Drive subfolders, retry with exponential backoff for 429/500/503, error tracking (`sync_errors.json`, which also records unreadable files and folders), crash-safe index writes (temp file + replace, once per batch), and probe-file connection testing. Index keys: work files use `<prefix>|<localPath>`; Claude context uses the Drive-relative path. Only the former is purged when the local file disappears.
+2. **AI Context Backup (`claude-desktop-tools` heritage):** Multi-level BFS discovery of `CLAUDE.md`, `references/`, `skills/`, `agents/`, `hooks/`, `agent-memory/`, `project-memory/`, `settings.json`, `keybindings.json`, `mcpServers`. Multi-layer secret redaction (filename keywords, 64KB content regex for AWS/GitHub/SSH/Slack keys, fail-closed MCP sanitization). Git untracked detection via `git ls-files` in batches of 50 (`core.quotePath=false`; fail-open to "untracked" when git errors). Granular category and item selection.
 3. **Flexible Synchronization Scheduler:** Decoupled precision background timer allowing users to select days of the week (Pills Mon–Sun) and a target time (`TimePicker`), running automated backups silently in the background without UI hangs.
 4. **App Quality, Diagnostics & Single Setup Installer:** Global exception handling dumping to `%LOCALAPPDATA%\SmartSync\Logs\crash.log` and `startup_diagnostic.log`. Native Mica background, Fluent Design, System Tray via `H.NotifyIcon.WinUI`, GitHub Releases auto-updater, and a single Inno Setup `.exe` installer with `--autostart` support.
 

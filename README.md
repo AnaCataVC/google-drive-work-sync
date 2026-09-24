@@ -16,16 +16,19 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 
 ### 1. Incremental Work File Synchronization
 - **Metadata Fast-Path & SHA-256 Verification:** Avoids re-uploading unmodified files by checking file modification timestamps and byte sizes first, computing full cryptographic hashes only when metadata indicates changes.
-- **Persistent Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`.
+- **Persistent Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. The index records what this app uploaded, not what currently exists in Drive: files deleted in Drive, or a Web App redeployed to another folder under the same URL, are not re-uploaded until the index is cleared from Settings. The metadata fast-path trusts an unchanged timestamp and size, so an edit that preserves both is not detected.
 - **Adaptive Batching:** Packages files into payloads of up to 8 files or 9 MB uncompressed (~12 MB base64) to conform to Google Apps Script execution quotas and payload ceilings.
-- **Fail-Soft Error Recovery:** Persists transient HTTP failures (429, 500, 503) to `sync_errors.json` and supports single-click batch retries with exponential backoff.
+- **Fail-Soft Error Recovery:** Persists transient HTTP failures (429, 500, 503) to `sync_errors.json` and supports single-click batch retries with exponential backoff. Retries re-hash the current file and drop entries whose source was removed or that are now filtered out.
+- **No Silent Skips:** Files that cannot be read (locked or permission-denied) and folders that cannot be listed are reported as errors, never counted as "unchanged", so the status only reads *Up to date* when everything was actually uploaded. Directory links (junctions, symlinks) are not followed.
+- **Crash-Safe Index:** `sync_hashes.json` is written to a temp file and then swapped in, once per batch, so an interrupted run cannot truncate it into an empty index.
+- **Responsive Cancellation:** Cancelling aborts the in-flight HTTP request instead of waiting for its timeout.
 - **Out-of-Sync Default Workflow:** Syncs only new or modified files by default, providing explicit pre-sync difference inspection dialogues.
 
 ### 2. Claude AI Context Discovery & Backup
 - **Multi-Level Project Traversal:** Performs breadth-first scans (levels 1–6) across developer workspaces, detecting Claude project guidelines (`CLAUDE.md`), agent skills, subagent prompts, memory files, and hooks.
 - **Nested Repository & Worktree Exclusion:** The BFS traversal detects directories that are git repository roots — both standard repos (`.git` directory) and linked worktrees (`.git` file written by `git worktree add`) — and skips them entirely, preventing versioned `CLAUDE.md` files from being misclassified as untracked or out-of-sync.
 - **Multi-Layer Secret Redaction:** Employs a three-tiered defense (blacklisted filenames, 64 KB header regex scans for PAT/SSH/OAuth tokens, and fail-closed MCP server configuration parsing) to prevent accidental data leakage.
-- **Git Tracking Awareness:** Uses batched `git ls-files` queries to distinguish tracked documentation from uncommitted local scratchpad notes.
+- **Git Tracking Awareness:** Uses batched `git ls-files` queries (with `core.quotePath=false`, so non-ASCII paths match) to distinguish tracked documentation from uncommitted local scratchpad notes. If git fails, files are treated as untracked and backed up, and the failure is logged.
 - **Status Classification:** Automatically cross-references candidates against the persistent hash index to classify items as *New*, *Modified*, or *Up to date*.
 
 ### 3. Automated Flexible Scheduler & System Tray
@@ -42,7 +45,7 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 - **MVVM Pattern:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
 - **Dependency Injection:** `Microsoft.Extensions.Hosting` 9.0.2 (Decoupled Services, ViewModels, and Window lifecycle)
 - **Tray & Shell Integration:** `H.NotifyIcon.WinUI` 2.1.4
-- **Testing:** xUnit 2.9.2 + Moq 4.20.72 (100% test pass rate across 66 unit tests)
+- **Testing:** xUnit 2.5.3 + Moq 4.20.72. Tests redirect the settings file and data directory to temp paths and run sequentially, so they never touch the real sync state.
 - **Installer:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
 
 ---

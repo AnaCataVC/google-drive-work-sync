@@ -16,16 +16,19 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 
 ### 1. Sincronización Incremental de Archivos de Trabajo
 - **Vía Rápida por Metadatos y Verificación SHA-256:** Evita subir archivos duplicados o sin cambios comprobando primero la fecha de modificación y el tamaño en bytes, calculando el hash criptográfico únicamente cuando los metadatos difieren.
-- **Índice Persistente de Hashes:** Almacena el estado de los archivos en `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`.
+- **Índice Persistente de Hashes:** Almacena el estado de los archivos en `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. El índice registra lo que esta app subió, no lo que existe hoy en Drive: archivos borrados en Drive, o un Web App redesplegado a otra carpeta con la misma URL, no se vuelven a subir hasta limpiar el índice desde Configuración. La ruta rápida por metadatos confía en fecha y tamaño sin cambios, así que una edición que conserve ambos no se detecta.
 - **Procesamiento por Lotes Adaptativo:** Agrupa archivos en lotes de hasta 8 elementos o 9 MB sin comprimir (~12 MB en base64) para respetar los límites de carga y tiempo de ejecución de Google Apps Script.
-- **Recuperación Resiliente ante Errores:** Registra fallos transitorios de red (429, 500, 503) en `sync_errors.json` y permite reintentos directos con retroceso exponencial (*exponential backoff*).
+- **Recuperación Resiliente ante Errores:** Registra fallos transitorios de red (429, 500, 503) en `sync_errors.json` y permite reintentos directos con retroceso exponencial (*exponential backoff*). El reintento vuelve a calcular el hash del archivo actual y descarta los errores de fuentes eliminadas o de archivos que ahora quedan filtrados.
+- **Sin Omisiones Silenciosas:** Los archivos que no se pueden leer (bloqueados o sin permisos) y las carpetas que no se pueden listar se reportan como error, nunca como "sin cambios"; el estado solo dice *Al día* cuando todo se subió de verdad. No se siguen enlaces de directorio (junctions, symlinks).
+- **Índice a Prueba de Caídas:** `sync_hashes.json` se escribe en un archivo temporal y luego lo reemplaza, una vez por lote, así que una ejecución interrumpida no puede dejarlo truncado y vacío.
+- **Cancelación Inmediata:** Cancelar aborta la petición HTTP en curso en vez de esperar su timeout.
 - **Flujo de Trabajo por Defecto Orientado a Desincronizados:** Sincroniza de forma predeterminada solo los archivos nuevos o modificados, ofreciendo diálogos de previsualización antes de iniciar la subida.
 
 ### 2. Detección y Respaldo de Contexto IA (Claude)
 - **Exploración Jerárquica de Proyectos:** Búsqueda en anchura (BFS niveles 1 al 6) por repositorios y carpetas de trabajo, identificando archivos de directrices de proyecto (`CLAUDE.md`), habilidades de agentes, prompts de subagentes, memorias y hooks.
 - **Exclusión de Repositorios Anidados y Worktrees:** El traversal BFS detecta si un subdirectorio es raíz de un repositorio git —tanto repos estándar (carpeta `.git`) como worktrees vinculados (archivo `.git` generado por `git worktree add`)— y los omite por completo, evitando que los `CLAUDE.md` versionados se clasifiquen erróneamente como archivos no sincronizados.
 - **Protección Multicapa contra Fugas de Secretos:** Defensa en tres fases (lista negra de nombres de archivo, escaneo por expresiones regulares en los primeros 64 KB de contenido para tokens PAT/SSH/OAuth, y saneamiento estricto de configuraciones de servidores MCP).
-- **Detección de Seguimiento en Git:** Consultas en lotes de `git ls-files` para distinguir entre documentación versionada y notas locales o scratchpads sin seguimiento.
+- **Detección de Seguimiento en Git:** Consultas en lotes de `git ls-files` (con `core.quotePath=false`, para que calcen las rutas con caracteres no ASCII) para distinguir entre documentación versionada y notas locales o scratchpads sin seguimiento. Si git falla, los archivos se tratan como no versionados y se respaldan, y el fallo queda en el log.
 - **Clasificación de Estado:** Cruza los archivos descubiertos contra el índice de hashes para etiquetarlos en tiempo real como *Nuevo*, *Modificado* o *Al día*.
 
 ### 3. Programador Automático Flexible y Bandeja del Sistema
@@ -42,7 +45,7 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 - **Patrón MVVM:** `CommunityToolkit.Mvvm` 8.4.0 (Generadores de código fuente para propiedades observables y comandos)
 - **Inyección de Dependencias:** `Microsoft.Extensions.Hosting` 9.0.2 (Servicios desacoplados, ViewModels y ciclo de vida de la ventana)
 - **Integración de Bandeja de Notificaciones:** `H.NotifyIcon.WinUI` 2.1.4
-- **Pruebas Unitarias:** xUnit 2.9.2 + Moq 4.20.72 (100% de éxito en 66 pruebas automatizadas)
+- **Pruebas Unitarias:** xUnit 2.5.3 + Moq 4.20.72. Las pruebas redirigen la configuración y el directorio de datos a rutas temporales y corren en secuencia, así que nunca tocan el estado real de sincronización.
 - **Instalador:** Inno Setup 6.7 con compresión ultra LZMA2 y registro de inicio automático en Windows
 
 ---
