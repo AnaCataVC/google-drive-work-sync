@@ -22,13 +22,19 @@ namespace GoogleDriveWorkSync.Services;
 public class DriveSyncService : IDriveSyncService, IDisposable
 {
     private const string SettingsKey = "DriveSyncSettings";
-    private static readonly string DataDirectory = Path.Combine(
+    public static readonly string DefaultDataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "GoogleDriveWorkSync",
         "Data");
-    private static readonly string HashIndexFile = Path.Combine(DataDirectory, "sync_hashes.json");
-    private static readonly string ErrorsFile = Path.Combine(DataDirectory, "sync_errors.json");
 
+    /// <summary>
+    /// Directory holding the hash index and error log. Settable so tests never touch the user's real index.
+    /// </summary>
+    public static string DataDirectory { get; set; } = DefaultDataDirectory;
+    private static string HashIndexFile => Path.Combine(DataDirectory, "sync_hashes.json");
+    private static string ErrorsFile => Path.Combine(DataDirectory, "sync_errors.json");
+
+    private const string UnreadableDirectoryCategory = "Carpeta sin acceso";
     private const int MaxBatchFileCount = 8;
     private const long MaxBatchRawBytes = 9L * 1024 * 1024;
 
@@ -74,7 +80,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     public void UpdateSettings(DriveSyncSettings settings)
     {
-        if (!string.Equals(_settings.WebAppUrl, settings.WebAppUrl, StringComparison.OrdinalIgnoreCase))
+        // Ordinal: Apps Script deployment IDs are case-sensitive, so a case change is a different target.
+        if (!string.Equals(_settings.WebAppUrl, settings.WebAppUrl, StringComparison.Ordinal))
         {
             ClearHashIndex();
         }
@@ -159,8 +166,20 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 StatusMessage = "Escaneando archivos locales..."
             });
 
-            var localFiles = await CollectFilesAsync(progress, token, onlySource);
+            var (localFiles, unreadableDirectories) = await CollectFilesAsync(progress, token, onlySource);
             summary.TotalScanned = localFiles.Count;
+
+            foreach (var directory in unreadableDirectories)
+            {
+                RecordError(summary, currentRunErrors, new SyncErrorItem
+                {
+                    FileName = Path.GetFileName(directory),
+                    FilePath = directory,
+                    ErrorCategory = UnreadableDirectoryCategory,
+                    ErrorMessage = "No se pudo leer la carpeta; su contenido no se sincronizó.",
+                    Timestamp = DateTime.Now
+                });
+            }
 
             int processed = 0;
             var pendingUploads = new List<UploadCandidate>();
@@ -179,7 +198,23 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 if (classification.Outcome == FileClassificationOutcome.MetadataStale)
                 {
-                    SaveKnownHash(file.HashKey, classification.Hash!, classification.StatFileInfo);
+                    SetKnownHash(file.HashKey, classification.Hash!, classification.StatFileInfo);
+                }
+
+                if (classification.Outcome == FileClassificationOutcome.Unreadable)
+                {
+                    var (category, friendlyMsg) = CategorizeError(classification.ReadError!, file.FilePath);
+                    RecordError(summary, currentRunErrors, new SyncErrorItem
+                    {
+                        FileName = file.FileName,
+                        FilePath = file.FilePath,
+                        RelativePath = file.RelativePath,
+                        HashKey = file.HashKey,
+                        ErrorCategory = category,
+                        ErrorMessage = friendlyMsg,
+                        Timestamp = DateTime.Now
+                    });
+                    continue;
                 }
 
                 if (classification.Outcome != FileClassificationOutcome.NeedsUpload)
@@ -202,6 +237,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 pendingUploads.Add(new UploadCandidate(
                     file.FilePath, file.FileName, file.RelativePath, file.HashKey, file.Hash, classification.StatFileInfo!));
             }
+
+            PersistHashIndex();
 
             if (!token.IsCancellationRequested)
             {
@@ -340,10 +377,29 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         try
         {
             var pendingRetries = new List<UploadCandidate>();
+            var filters = CreateFilters();
+            var activePrefixes = new HashSet<string>(
+                EnumerateSources().Select(s => s.EffectiveDestinationPrefix), StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in filesToRetry)
             {
                 processed++;
+
+                // A directory cannot be retried on its own; the next full sync re-scans it.
+                if (item.ErrorCategory == UnreadableDirectoryCategory)
+                {
+                    remainingErrors.Add(item);
+                    continue;
+                }
+
+                // Drop errors whose source was removed or whose file is now filtered out:
+                // a regular sync would no longer upload them either.
+                var pipeIndex = item.HashKey.IndexOf('|');
+                if (pipeIndex < 0 || !activePrefixes.Contains(item.HashKey[..pipeIndex]) ||
+                    (File.Exists(item.FilePath) && !filters.ShouldIncludeFile(new FileInfo(item.FilePath), out _)))
+                {
+                    continue;
+                }
 
                 if (!File.Exists(item.FilePath))
                 {
@@ -358,8 +414,28 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     continue;
                 }
 
+                // Snapshot metadata before hashing, and hash the current bytes rather than reusing
+                // the failed run's hash, so the index describes what is actually uploaded now.
+                var info = SnapshotFileInfo(item.FilePath);
+                string currentHash;
+                try
+                {
+                    currentHash = ComputeSha256(item.FilePath);
+                }
+                catch (Exception ex)
+                {
+                    summary.Errors++;
+                    var (category, friendlyMsg) = CategorizeError(ex, item.FilePath);
+                    item.ErrorMessage = friendlyMsg;
+                    item.ErrorCategory = category;
+                    item.Timestamp = DateTime.Now;
+                    remainingErrors.Add(item);
+                    summary.FailedFiles.Add(item);
+                    continue;
+                }
+
                 pendingRetries.Add(new UploadCandidate(
-                    item.FilePath, item.FileName, item.RelativePath, item.HashKey, item.Hash, new FileInfo(item.FilePath)));
+                    item.FilePath, item.FileName, item.RelativePath, item.HashKey, currentHash, info));
             }
 
             var batches = BuildBatches(pendingRetries);
@@ -446,7 +522,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             return Array.Empty<OutOfSyncFile>();
         }
 
-        var localFiles = await CollectFilesAsync(progress: null, cancellationToken, onlySource);
+        var (localFiles, _) = await CollectFilesAsync(progress: null, cancellationToken, onlySource);
         var result = new List<OutOfSyncFile>();
 
         foreach (var file in localFiles)
@@ -454,7 +530,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             var classification = ClassifyFile(file, forceFullSync: false);
-            if (classification.Outcome != FileClassificationOutcome.NeedsUpload)
+            if (classification.Outcome is not (FileClassificationOutcome.NeedsUpload or FileClassificationOutcome.Unreadable))
                 continue;
 
             result.Add(new OutOfSyncFile
@@ -463,7 +539,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 FilePath = file.FilePath,
                 RelativePath = file.RelativePath,
                 FileSize = file.FileSize,
-                Reason = classification.IsNew ? "Nuevo" : "Modificado"
+                Reason = classification.Outcome == FileClassificationOutcome.Unreadable
+                    ? "Sin acceso"
+                    : classification.IsNew ? "Nuevo" : "Modificado"
             });
         }
 
@@ -514,7 +592,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string fileName = Path.GetFileName(localFilePath);
 
         var candidate = new UploadCandidate(localFilePath, fileName, destinationRelativePath, destinationRelativePath, hash, fileInfo);
-        var results = await UploadBatchAsync(new List<UploadCandidate> { candidate }, webAppUrl, mimeType, overrideAuthToken);
+        var results = await UploadBatchAsync(new List<UploadCandidate> { candidate }, webAppUrl, cancellationToken, mimeType, overrideAuthToken);
         return results.Count > 0 && results[0].Success;
     }
 
@@ -530,12 +608,12 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             return CandidateSyncStatus.UpToDate;
         }
 
-        string currentHash = ComputeSha256(filePath);
         if (cachedHash == null)
         {
             return CandidateSyncStatus.New;
         }
 
+        string currentHash = ComputeSha256(filePath);
         return string.Equals(cachedHash, currentHash, StringComparison.OrdinalIgnoreCase)
             ? CandidateSyncStatus.UpToDate
             : CandidateSyncStatus.Modified;
@@ -582,6 +660,30 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         Timestamp = DateTime.Now
     };
 
+    private static void RecordError(SyncResultSummary summary, List<SyncErrorItem> errorSink, SyncErrorItem errorItem)
+    {
+        summary.Errors++;
+        errorSink.Add(errorItem);
+        summary.FailedFiles.Add(errorItem);
+    }
+
+    /// <summary>
+    /// Returns a FileInfo whose length and timestamps are read now. FileInfo otherwise caches them
+    /// lazily on first access, which could record metadata from after the hash was computed.
+    /// </summary>
+    private static FileInfo SnapshotFileInfo(string filePath)
+    {
+        var info = new FileInfo(filePath);
+        info.Refresh();
+        return info;
+    }
+
+    private SyncFilterOptions CreateFilters() => SyncFilterOptions.Create(
+        _settings.IncludedExtensions,
+        _settings.ExcludedExtensions,
+        _settings.ExcludedFolders,
+        _settings.MaxFileSizeMb);
+
     private async Task ProcessBatchAsync(
         List<UploadCandidate> batch,
         SyncResultSummary summary,
@@ -590,7 +692,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     {
         try
         {
-            var results = await UploadBatchAsync(batch, _settings.WebAppUrl);
+            var results = await UploadBatchAsync(batch, _settings.WebAppUrl, token);
             for (int i = 0; i < batch.Count; i++)
             {
                 var candidate = batch[i];
@@ -598,7 +700,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 if (result.Success)
                 {
-                    SaveKnownHash(candidate.HashKey, candidate.Hash, candidate.Info);
+                    SetKnownHash(candidate.HashKey, candidate.Hash, candidate.Info);
                     summary.Uploaded++;
                 }
                 else
@@ -609,6 +711,14 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     errorSink.Add(errorItem);
                     summary.FailedFiles.Add(errorItem);
                 }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Not a failure: a regular sync re-detects these files, and a retry keeps them pending.
+            foreach (var candidate in batch)
+            {
+                errorSink.Add(BuildErrorItem(candidate, "Cancelado", "Subida cancelada por el usuario."));
             }
         }
         catch (Exception ex)
@@ -623,21 +733,26 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 summary.FailedFiles.Add(errorItem);
             }
         }
+        finally
+        {
+            PersistHashIndex();
+        }
     }
 
     private async Task<List<BatchUploadResult>> UploadBatchAsync(
         List<UploadCandidate> batch,
         string webAppUrl,
+        CancellationToken token,
         string? overrideMimeType = null,
         string? overrideAuthToken = null)
     {
-        await _uploadSemaphore.WaitAsync();
+        await _uploadSemaphore.WaitAsync(token);
         try
         {
             var fileEntries = new List<object>(batch.Count);
             foreach (var candidate in batch)
             {
-                byte[] fileBytes = await File.ReadAllBytesAsync(candidate.FilePath);
+                byte[] fileBytes = await File.ReadAllBytesAsync(candidate.FilePath, token);
                 string fileName = ResolveUploadName(candidate.FilePath, candidate.RelativePath);
 
                 fileEntries.Add(new
@@ -669,20 +784,20 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 try
                 {
                     var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-                    var response = await _httpClient.PostAsync(webAppUrl, content);
+                    var response = await _httpClient.PostAsync(webAppUrl, content, token);
 
                     if ((response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
                          response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
                          response.StatusCode == System.Net.HttpStatusCode.InternalServerError) && attempt < maxRetries)
                     {
-                        await Task.Delay(delayMs + Random.Shared.Next(100, 500));
+                        await Task.Delay(delayMs + Random.Shared.Next(100, 500), token);
                         delayMs *= 2;
                         continue;
                     }
 
                     response.EnsureSuccessStatusCode();
 
-                    var responseString = await response.Content.ReadAsStringAsync();
+                    var responseString = await response.Content.ReadAsStringAsync(token);
 
                     JsonElement result;
                     try
@@ -693,7 +808,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     {
                         if (attempt < maxRetries)
                         {
-                            await Task.Delay(delayMs + Random.Shared.Next(100, 500));
+                            await Task.Delay(delayMs + Random.Shared.Next(100, 500), token);
                             delayMs *= 2;
                             continue;
                         }
@@ -709,7 +824,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         if ((msg.Contains("Service invoked too many times", StringComparison.OrdinalIgnoreCase) ||
                              msg.Contains("rate limit", StringComparison.OrdinalIgnoreCase)) && attempt < maxRetries)
                         {
-                            await Task.Delay(delayMs + Random.Shared.Next(100, 500));
+                            await Task.Delay(delayMs + Random.Shared.Next(100, 500), token);
                             delayMs *= 2;
                             continue;
                         }
@@ -736,9 +851,10 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                     return perFileResults;
                 }
-                catch (Exception ex) when (attempt < maxRetries && (ex is TaskCanceledException || ex is HttpRequestException))
+                catch (Exception ex) when (attempt < maxRetries && !token.IsCancellationRequested &&
+                                           (ex is TaskCanceledException || ex is HttpRequestException))
                 {
-                    await Task.Delay(delayMs + Random.Shared.Next(100, 500));
+                    await Task.Delay(delayMs + Random.Shared.Next(100, 500), token);
                     delayMs *= 2;
                 }
             }
@@ -793,7 +909,15 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         return string.IsNullOrWhiteSpace(lastSegment) ? Path.GetFileName(filePath) : lastSegment;
     }
 
-    public List<LocalFileMetadata> ScanFolder(string rootFolderPath, SyncFilterOptions? filters = null)
+    /// <summary>
+    /// Scans a folder breadth-first. Directory links (junctions, symlinks) are not followed, since they
+    /// can form cycles. Directories that cannot be read are added to <paramref name="unreadableDirectories"/>
+    /// so the caller can report them instead of treating their contents as synced.
+    /// </summary>
+    public List<LocalFileMetadata> ScanFolder(
+        string rootFolderPath,
+        SyncFilterOptions? filters = null,
+        List<string>? unreadableDirectories = null)
     {
         var results = new List<LocalFileMetadata>();
         if (string.IsNullOrWhiteSpace(rootFolderPath) || !Directory.Exists(rootFolderPath))
@@ -812,15 +936,19 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 var subDirs = Directory.GetDirectories(currentDir);
                 foreach (var subDir in subDirs)
                 {
-                    var dirName = new DirectoryInfo(subDir).Name;
-                    if (!filters.IsFolderExcluded(dirName))
+                    var dirInfo = new DirectoryInfo(subDir);
+                    if (!filters.IsFolderExcluded(dirInfo.Name) &&
+                        !dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
                         directoriesQueue.Enqueue(subDir);
                     }
                 }
             }
-            catch (UnauthorizedAccessException) { }
-            catch (Exception) { }
+            catch (Exception)
+            {
+                unreadableDirectories?.Add(currentDir);
+                continue;
+            }
 
             try
             {
@@ -845,8 +973,10 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     catch (Exception) { }
                 }
             }
-            catch (UnauthorizedAccessException) { }
-            catch (Exception) { }
+            catch (Exception)
+            {
+                unreadableDirectories?.Add(currentDir);
+            }
         }
 
         return results;
@@ -870,7 +1000,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
-    private async Task<List<LocalFileMetadata>> CollectFilesAsync(
+    private async Task<(List<LocalFileMetadata> Files, List<string> UnreadableDirectories)> CollectFilesAsync(
         IProgress<SyncProgressReport>? progress,
         CancellationToken token,
         SyncSource? onlySource = null)
@@ -878,12 +1008,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         return await Task.Run(() =>
         {
             var collected = new List<LocalFileMetadata>();
-
-            var filters = SyncFilterOptions.Create(
-                _settings.IncludedExtensions,
-                _settings.ExcludedExtensions,
-                _settings.ExcludedFolders,
-                _settings.MaxFileSizeMb);
+            var unreadableDirectories = new List<string>();
+            var filters = CreateFilters();
 
             foreach (var source in EnumerateSources(onlySource))
             {
@@ -896,7 +1022,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     StatusMessage = $"Escaneando {prefix}..."
                 });
 
-                foreach (var file in ScanFolder(source.LocalFolderPath, filters))
+                foreach (var file in ScanFolder(source.LocalFolderPath, filters, unreadableDirectories))
                 {
                     file.RelativePath = CombineDestination(prefix, file.RelativePath);
                     file.HashKey = $"{prefix}|{file.FilePath}";
@@ -904,7 +1030,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 }
             }
 
-            return collected;
+            return (collected, unreadableDirectories);
         }, token);
     }
 
@@ -921,15 +1047,18 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     {
         Unchanged,
         MetadataStale,
-        NeedsUpload
+        NeedsUpload,
+        Unreadable
     }
 
     private readonly record struct FileClassification(
-        FileClassificationOutcome Outcome, string? Hash, FileInfo? StatFileInfo, bool IsNew);
+        FileClassificationOutcome Outcome, string? Hash, FileInfo? StatFileInfo, bool IsNew, Exception? ReadError = null);
 
     private FileClassification ClassifyFile(LocalFileMetadata file, bool forceFullSync)
     {
-        var statFileInfo = new FileInfo(file.FilePath);
+        // Metadata is captured before hashing: if the file changes in between, the stored timestamp
+        // is older than the file's, so the next run re-hashes instead of trusting a stale entry.
+        var statFileInfo = SnapshotFileInfo(file.FilePath);
 
         if (!forceFullSync && _settings.OnlyModifiedOrNew)
         {
@@ -949,7 +1078,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             catch (Exception ex)
             {
                 DiagnosticLogger.LogCrash("DriveSyncService_ClassifyFile", ex, $"No se pudo calcular hash (archivo bloqueado o sin permiso): {file.FilePath}");
-                return new FileClassification(FileClassificationOutcome.Unchanged, null, statFileInfo, IsNew: false);
+                return new FileClassification(FileClassificationOutcome.Unreadable, null, statFileInfo, IsNew: false, ex);
             }
 
             if (cachedHash != null && string.Equals(cachedHash, hash, StringComparison.OrdinalIgnoreCase))
@@ -969,7 +1098,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             catch (Exception ex)
             {
                 DiagnosticLogger.LogCrash("DriveSyncService_ClassifyFile", ex, $"No se pudo calcular hash (archivo bloqueado o sin permiso): {file.FilePath}");
-                return new FileClassification(FileClassificationOutcome.Unchanged, null, statFileInfo, IsNew: false);
+                return new FileClassification(FileClassificationOutcome.Unreadable, null, statFileInfo, IsNew: false, ex);
             }
             return new FileClassification(FileClassificationOutcome.NeedsUpload, hash, statFileInfo, IsNew: GetKnownHash(file.HashKey) == null);
         }
@@ -1025,6 +1154,15 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     public void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null)
     {
+        SetKnownHash(hashKey, hash, fileInfo);
+        PersistHashIndex();
+    }
+
+    /// <summary>
+    /// Updates the in-memory index only; bulk callers persist once per batch with <see cref="PersistHashIndex"/>.
+    /// </summary>
+    private void SetKnownHash(string hashKey, string hash, FileInfo? fileInfo)
+    {
         lock (_hashLock)
         {
             _hashIndex[hashKey] = new HashCacheEntry
@@ -1033,6 +1171,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 LastWriteTimeUtcTicks = fileInfo != null ? fileInfo.LastWriteTimeUtc.Ticks : 0L,
                 FileSize = fileInfo?.Length ?? 0L
             };
+        }
+    }
+
+    private void PersistHashIndex()
+    {
+        lock (_hashLock)
+        {
             SaveHashIndex();
         }
     }
@@ -1051,12 +1196,19 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     private static void SaveJsonFile<T>(string path, T value)
     {
+        // Write-then-replace: a crash mid-write must not leave a truncated index, which would
+        // load as empty and silently trigger a full re-upload.
+        string tempPath = path + ".tmp";
         try
         {
             Directory.CreateDirectory(DataDirectory);
-            File.WriteAllText(path, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = false }));
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = false }));
+            File.Move(tempPath, path, overwrite: true);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogCrash("DriveSyncService_SaveJsonFile", ex, $"No se pudo guardar {path}");
+        }
     }
 
     private void LoadHashIndex()
@@ -1094,8 +1246,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    DiagnosticLogger.LogCrash("DriveSyncService_LoadHashIndex", ex, "Índice de hashes corrupto; se reinicia vacío");
                     newIndex.Clear();
                 }
             }
@@ -1173,9 +1326,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             var orphanKeys = new List<string>();
             foreach (var (key, _) in _hashIndex)
             {
+                // Only work-file keys ("prefix|localPath") carry a local path. Claude context keys are
+                // Drive-relative paths with no local counterpart, so File.Exists would always drop them.
                 var pipeIndex = key.IndexOf('|');
-                var localPath = pipeIndex >= 0 ? key[(pipeIndex + 1)..] : key;
-                if (!File.Exists(localPath))
+                if (pipeIndex < 0)
+                    continue;
+
+                if (!File.Exists(key[(pipeIndex + 1)..]))
                 {
                     orphanKeys.Add(key);
                 }

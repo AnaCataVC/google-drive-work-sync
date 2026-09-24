@@ -304,6 +304,48 @@ public class DriveSyncServiceTests : IDisposable
         Assert.Equal(indexCountBefore, hashIndex.Count);
     }
 
+    [Fact]
+    public void PurgeOrphanHashes_ShouldKeepClaudeContextKeys_WhileDroppingMissingWorkFiles()
+    {
+        var existingFile = Path.Combine(_testDir, "claude.md");
+        File.WriteAllText(existingFile, "context");
+
+        _service.SaveKnownHash("claude/mi-repo/CLAUDE.md", "abc", new FileInfo(existingFile));
+        _service.SaveKnownHash($"work|{Path.Combine(_testDir, "gone.txt")}", "def", new FileInfo(existingFile));
+
+        _service.PurgeOrphanHashes();
+
+        Assert.Equal(CandidateSyncStatus.UpToDate, _service.EvaluateFileStatus(existingFile, "claude/mi-repo/CLAUDE.md"));
+        Assert.Equal(CandidateSyncStatus.New, _service.EvaluateFileStatus(existingFile, $"work|{Path.Combine(_testDir, "gone.txt")}"));
+    }
+
+    [Fact]
+    public async Task RunSyncAsync_ShouldReportLockedFileAsError_InsteadOfUpToDate()
+    {
+        var syncFolder = Path.Combine(_testDir, "locked-source");
+        Directory.CreateDirectory(syncFolder);
+        var lockedPath = Path.Combine(syncFolder, "locked.txt");
+        File.WriteAllText(lockedPath, "content");
+
+        _service.UpdateSettings(new DriveSyncSettings
+        {
+            WebAppUrl = "https://script.google.com/test",
+            Sources = { new SyncSource { LocalFolderPath = syncFolder } },
+            OnlyModifiedOrNew = true
+        });
+
+        using (new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var preview = await _service.PreviewOutOfSyncAsync();
+            Assert.Contains(preview, f => f.FileName == "locked.txt" && f.Reason == "Sin acceso");
+
+            var summary = await _service.RunSyncAsync();
+            Assert.False(summary.Success);
+            Assert.Equal(0, summary.Skipped);
+            Assert.Contains(_service.LastSyncErrors, e => e.FilePath == lockedPath);
+        }
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

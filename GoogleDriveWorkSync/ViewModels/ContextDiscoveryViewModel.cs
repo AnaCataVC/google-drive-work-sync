@@ -230,12 +230,16 @@ public partial class ContextDiscoveryViewModel : ObservableObject
                     _ => "text/markdown"
                 };
 
+                // Capture metadata and hash before uploading: if the file changes mid-upload, the index
+                // must describe the older version, so the next scan flags the newer one as modified.
+                var fi = new FileInfo(candidate.FilePath);
+                fi.Refresh();
+                string hash = _driveSyncService.ComputeSha256(candidate.FilePath);
+
                 bool success = await _driveSyncService.UploadSingleFileAsync(candidate.FilePath, destinationPath, mimeType, token);
                 if (success)
                 {
                     uploaded++;
-                    var fi = new FileInfo(candidate.FilePath);
-                    string hash = _driveSyncService.ComputeSha256(candidate.FilePath);
                     _driveSyncService.SaveKnownHash(destinationPath, hash, fi);
                     candidate.SyncStatus = CandidateSyncStatus.UpToDate;
                 }

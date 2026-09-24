@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -701,8 +702,13 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8
             };
+            // Without quotePath=false git prints non-ASCII paths as octal escapes, which never
+            // match the requested path and make tracked files look untracked.
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add("core.quotePath=false");
             startInfo.ArgumentList.Add("-C");
             startInfo.ArgumentList.Add(repoRoot);
             startInfo.ArgumentList.Add("ls-files");
@@ -721,9 +727,16 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
                 var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
                 await process.WaitForExitAsync(cancellationToken);
                 var stdout = await stdoutTask;
-                await stderrTask;
+                var stderr = await stderrTask;
 
-                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+                // Fail-open on purpose: when git cannot answer, files are treated as untracked and
+                // get backed up, since an extra upload is cheaper than silently skipping a file.
+                if (process.ExitCode != 0)
+                {
+                    DiagnosticLogger.LogCrash("ClaudeDiscoveryService_GetTrackedFiles", null,
+                        $"git ls-files falló en {repoRoot} (exit {process.ExitCode}): {stderr.Trim()}");
+                }
+                else if (!string.IsNullOrWhiteSpace(stdout))
                 {
                     using var reader = new StringReader(stdout);
                     string? line;

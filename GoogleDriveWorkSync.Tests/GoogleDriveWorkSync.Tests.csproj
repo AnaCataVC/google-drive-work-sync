@@ -14,6 +14,7 @@
     <Compile Include="..\GoogleDriveWorkSync\Helpers\AutostartHelper.cs" Link="Helpers\AutostartHelper.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\LocalSettingsHelper.cs" Link="Helpers\LocalSettingsHelper.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\DiagnosticLogger.cs" Link="Helpers\DiagnosticLogger.cs" />
+    <Compile Include="..\GoogleDriveWorkSync\Helpers\TimeSpanJsonConverter.cs" Link="Helpers\TimeSpanJsonConverter.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Services\Interfaces\*.cs" Link="Services\Interfaces\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\ViewModels\ContextDiscoveryViewModel.cs" Link="ViewModels\ContextDiscoveryViewModel.cs" />
