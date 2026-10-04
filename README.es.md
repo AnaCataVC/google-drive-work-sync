@@ -1,12 +1,16 @@
+<p align="center">
+  <img src="icon.png" alt="google-drive-work-sync Logo" width="120" />
+</p>
+
 # Google Drive Work Sync
 
-[English](README.md) • [Español](README.es.md)
+[English](README.md) | [Español](README.es.md)
 
-[![Plataforma](https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Windows%2010%20(1809%2B)-0078D6?style=flat-square&logo=windows)](https://microsoft.com)
-[![Framework](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
-[![Interfaz](https://img.shields.io/badge/UI-WinUI%203%20%2F%20Windows%20App%20SDK%202.4-0078D6?style=flat-square)](https://learn.microsoft.com/windows/apps/winui/winui3/)
-[![Arquitectura](https://img.shields.io/badge/Arquitectura-x64-blue?style=flat-square)]()
-[![Licencia](https://img.shields.io/badge/Licencia-MIT-green?style=flat-square)](LICENSE)
+[![Plataforma](https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Windows%2010%20(1809%2B)-0078D6?style=flat&logo=windows)](https://microsoft.com)
+[![Framework](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat&logo=dotnet)](https://dotnet.microsoft.com/)
+[![Interfaz](https://img.shields.io/badge/UI-WinUI%203%20%2F%20Windows%20App%20SDK%202.4-0078D6?style=flat)](https://learn.microsoft.com/windows/apps/winui/winui3/)
+[![Arquitectura](https://img.shields.io/badge/Arquitectura-x64-blue?style=flat)]()
+[![Licencia](https://img.shields.io/badge/Licencia-MIT-green?style=flat)](LICENSE)
 
 Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseñada para sincronizar carpetas de trabajo y archivos de contexto para IA (Claude) directamente hacia Google Drive mediante una Web App de Google Apps Script. Desarrollada con Fluent Design, material translúcido Mica nativo, ejecución minimizada en la bandeja del sistema y hashing incremental de alta precisión.
 
@@ -93,8 +97,17 @@ dotnet build GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release
 dotnet publish GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release -r win-x64 --self-contained true -o releases/GoogleDriveWorkSync-win-x64
 
 # 5. Compilar instalador con Inno Setup
-& "C:\Users\anaca\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer/GoogleDriveWorkSync.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/GoogleDriveWorkSync.iss
 ```
+
+---
+
+## Aprendizajes Clave
+
+- **Índice Criptográfico a Prueba de Caídas:** El estado de sincronización se escribe en un archivo temporal y se intercambia de forma atómica (`sync_hashes.json`), garantizando que una interrupción o corte eléctrico jamás deje el índice vacío o corrupto.
+- **Filtro de Secretos en Tres Capas:** Implementación de una defensa fail-closed que combina listas de exclusión de nombres, escaneo regex de los primeros 64 KB en busca de tokens PAT/AWS/SSH y sanitización recursiva de configuraciones MCP antes de encolar archivos.
+- **Detección de Repositorios Anidados y Worktrees:** Algoritmo BFS que identifica raíces de Git (tanto carpetas `.git` como punteros de worktree) para evitar clasificar archivos versionados como notas locales sin seguimiento.
+- **Cero Omisiones Silenciosas:** Los archivos bloqueados o carpetas sin permisos se reportan como errores en lugar de registrarse como "sin cambios", asegurando que el estado "Al día" sea 100% fiable.
 
 ---
 
@@ -111,5 +124,7 @@ Dirígete a la pestaña de **Ajustes** en la aplicación:
 ## Licencia
 
 Este proyecto está bajo la Licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más información.
+
+
 
 
