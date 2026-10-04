@@ -165,7 +165,7 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1" CornerRadius="8" Padding="18">
                         <StackPanel Spacing="14">
-                            <TextBlock Text="Organización de carpetas de destino en Google Drive para archivos CLAUDE.md, memorias, skills y agentes."
+                            <TextBlock Text="Organización de carpetas de destino en Google Drive para archivos CLAUDE.md, skills, hooks y agentes."
                                        Style="{StaticResource CaptionTextBlockStyle}"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
@@ -179,8 +179,8 @@
                                      Text="{x:Bind ViewModel.ClaudeNoRepoBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="ej: _sin-repo" />
 
-                            <TextBox Header="Subcarpeta para configuración global de Claude (skills, hooks, memorias)"
-                                     ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de configuración global de Claude: skills, hooks, agentes y memorias sin repo."
+                            <TextBox Header="Subcarpeta para configuración global de Claude (skills, hooks, agentes)"
+                                     ToolTipService.ToolTip="Nombre de la subcarpeta en Drive para los archivos de configuración global de Claude: skills, hooks y agentes sin repo."
                                      Text="{x:Bind ViewModel.ClaudeConfigBucketName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="ej: _claude-config" />
                         </StackPanel>

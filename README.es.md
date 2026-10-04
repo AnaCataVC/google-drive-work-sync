@@ -29,7 +29,7 @@ Aplicación de escritorio moderna y de alto rendimiento para Windows 11, diseña
 - **Flujo de Trabajo por Defecto Orientado a Desincronizados:** Sincroniza de forma predeterminada solo los archivos nuevos o modificados, ofreciendo diálogos de previsualización antes de iniciar la subida.
 
 ### 2. Detección y Respaldo de Contexto IA (Claude)
-- **Exploración Jerárquica de Proyectos:** Búsqueda en anchura (BFS niveles 1 al 6) por repositorios y carpetas de trabajo, identificando archivos de directrices de proyecto (`CLAUDE.md`), habilidades de agentes, prompts de subagentes, memorias y hooks.
+- **Exploración Jerárquica de Proyectos:** Búsqueda en anchura (BFS niveles 1 al 6) por repositorios y carpetas de trabajo, identificando archivos de directrices de proyecto (`CLAUDE.md`), habilidades de agentes, prompts de subagentes y hooks.
 - **Exclusión de Repositorios Anidados y Worktrees:** El traversal BFS detecta si un subdirectorio es raíz de un repositorio git —tanto repos estándar (carpeta `.git`) como worktrees vinculados (archivo `.git` generado por `git worktree add`)— y los omite por completo, evitando que los `CLAUDE.md` versionados se clasifiquen erróneamente como archivos no sincronizados.
 - **Protección Multicapa contra Fugas de Secretos:** Defensa en tres fases (lista negra de nombres de archivo, escaneo por expresiones regulares en los primeros 64 KB de contenido para tokens PAT/SSH/OAuth, y saneamiento estricto de configuraciones de servidores MCP).
 - **Detección de Seguimiento en Git:** Consultas en lotes de `git ls-files` (con `core.quotePath=false`, para que calcen las rutas con caracteres no ASCII) para distinguir entre documentación versionada y notas locales o scratchpads sin seguimiento. Si git falla, los archivos se tratan como no versionados y se respaldan, y el fallo queda en el log.
@@ -76,7 +76,7 @@ Las Web Apps de Google Apps Script reciben cargas útiles JSON vía HTTP POST. E
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (incluido en el instalador autónomo)
 
 ### Instalación Rápida (Instalador Único)
-1. Descarga `GoogleDriveWorkSync-Setup-v1.2.1.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Descarga `GoogleDriveWorkSync-Setup-v1.2.2.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Ejecuta el instalador. Puedes marcar la opción de inicio automático con Windows si lo deseas.
 3. Abre la aplicación desde el Menú Inicio o el Escritorio.
 

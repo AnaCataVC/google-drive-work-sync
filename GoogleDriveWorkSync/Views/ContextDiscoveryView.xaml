@@ -16,7 +16,7 @@
                 <!-- Header -->
                 <StackPanel Spacing="6">
                     <TextBlock Text="Respaldo de Contexto IA (Claude)" Style="{StaticResource TitleTextBlockStyle}" />
-                    <TextBlock Text="Localiza CLAUDE.md, references, skills, agentes, hooks y memorias con filtrado multi-capa de secretos y detección de Git."
+                    <TextBlock Text="Localiza CLAUDE.md, references, skills, agentes y hooks con filtrado multi-capa de secretos y detección de Git."
                                Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
 

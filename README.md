@@ -29,7 +29,7 @@ A modern, high-performance Windows 11 desktop application designed to synchroniz
 - **Out-of-Sync Default Workflow:** Syncs only new or modified files by default, providing explicit pre-sync difference inspection dialogues.
 
 ### 2. Claude AI Context Discovery & Backup
-- **Multi-Level Project Traversal:** Performs breadth-first scans (levels 1–6) across developer workspaces, detecting Claude project guidelines (`CLAUDE.md`), agent skills, subagent prompts, memory files, and hooks.
+- **Multi-Level Project Traversal:** Performs breadth-first scans (levels 1–6) across developer workspaces, detecting Claude project guidelines (`CLAUDE.md`), agent skills, subagent prompts, and hooks.
 - **Nested Repository & Worktree Exclusion:** The BFS traversal detects directories that are git repository roots — both standard repos (`.git` directory) and linked worktrees (`.git` file written by `git worktree add`) — and skips them entirely, preventing versioned `CLAUDE.md` files from being misclassified as untracked or out-of-sync.
 - **Multi-Layer Secret Redaction:** Employs a three-tiered defense (blacklisted filenames, 64 KB header regex scans for PAT/SSH/OAuth tokens, and fail-closed MCP server configuration parsing) to prevent accidental data leakage.
 - **Git Tracking Awareness:** Uses batched `git ls-files` queries (with `core.quotePath=false`, so non-ASCII paths match) to distinguish tracked documentation from uncommitted local scratchpad notes. If git fails, files are treated as untracked and backed up, and the failure is logged.
@@ -76,7 +76,7 @@ Google Apps Script Web Apps receive JSON payloads via HTTP POST. Rather than sen
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (included in self-contained installer)
 
 ### Quick Install (Setup Executable)
-1. Download `GoogleDriveWorkSync-Setup-v1.2.1.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Download `GoogleDriveWorkSync-Setup-v1.2.2.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Run the installer. You can optionally check "Iniciar Google Drive Work Sync automáticamente al iniciar sesión en Windows".
 3. Launch the application from the Start Menu or Desktop.
 

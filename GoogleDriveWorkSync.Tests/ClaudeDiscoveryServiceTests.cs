@@ -47,6 +47,7 @@ public class ClaudeDiscoveryServiceTests : IDisposable
     [InlineData(".git", true)]
     [InlineData("node_modules", true)]
     [InlineData("memory", true)]
+    [InlineData("agent-memory", true)]
     [InlineData("plans", true)]
     [InlineData("security", true)]
     [InlineData("cache", true)]
@@ -179,7 +180,7 @@ public class ClaudeDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task DiscoverAsync_FindsSkillsAgentsScheduledTasksAndHooks()
+    public async System.Threading.Tasks.Task DiscoverAsync_FindsSkillsAgentsScheduledTasksAndHooks_AndIgnoresMemories()
     {
         string dotClaudeDir = Path.Combine(_tempDir, ".claude");
 
@@ -217,12 +218,8 @@ public class ClaudeDiscoveryServiceTests : IDisposable
         var hook = Assert.Single(report.Candidates, c => c.Category == ClaudeDiscoveryCategory.Hook);
         Assert.Equal("hooks/my-hook.ps1", hook.RelativePath);
 
-        var agentMemory = Assert.Single(report.Candidates, c => c.Category == ClaudeDiscoveryCategory.AgentMemory);
-        Assert.Equal("agent-memory/qa-tester/MEMORY.md", agentMemory.RelativePath);
-
-        var projectMemory = Assert.Single(report.Candidates, c => c.Category == ClaudeDiscoveryCategory.ProjectMemory);
-        Assert.Equal("projects/my-project/memory/MEMORY.md", projectMemory.RelativePath);
-
+        Assert.DoesNotContain(report.Candidates, c => c.FilePath.Contains("agent-memory", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(report.Candidates, c => c.FilePath.Contains("MEMORY.md", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(report.Candidates, c => c.FilePath.EndsWith("state.json"));
     }
 

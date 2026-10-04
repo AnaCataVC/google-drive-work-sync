@@ -60,7 +60,7 @@ public class DriveSyncSettings
     /// <summary>Bucket for Claude files with no owning Git repository.</summary>
     public string ClaudeNoRepoBucketName { get; set; } = "_sin-repo";
 
-    /// <summary>Bucket for Claude global configuration (skills, hooks, memories with no repo).</summary>
+    /// <summary>Bucket for Claude global configuration (skills, hooks, agents with no repo).</summary>
     public string ClaudeConfigBucketName { get; set; } = "_claude-config";
 
     /// <summary>Timestamp of last successful Claude context sync.</summary>

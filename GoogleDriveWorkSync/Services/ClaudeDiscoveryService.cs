@@ -272,6 +272,7 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         if (dirName.StartsWith("_backup_", StringComparison.OrdinalIgnoreCase) ||
             dirName.StartsWith("backup_", StringComparison.OrdinalIgnoreCase) ||
             dirName.Equals("memory", StringComparison.OrdinalIgnoreCase) ||
+            dirName.Equals("agent-memory", StringComparison.OrdinalIgnoreCase) ||
             dirName.Equals("plans", StringComparison.OrdinalIgnoreCase) ||
             dirName.Equals("security", StringComparison.OrdinalIgnoreCase) ||
             dirName.Equals("cache", StringComparison.OrdinalIgnoreCase) ||
@@ -422,31 +423,11 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         CollectCategoryFiles(dotClaudeDir, "skills", 3, ClaudeDiscoveryCategory.Skill, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "agents", 1, ClaudeDiscoveryCategory.Agent, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "scheduled-tasks", 3, ClaudeDiscoveryCategory.ScheduledTask, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
-        CollectCategoryFiles(dotClaudeDir, "agent-memory", 3, ClaudeDiscoveryCategory.AgentMemory, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "hooks", 1, ClaudeDiscoveryCategory.Hook, IsHookScriptAllowed, directCandidates, categoryByPath, explicitRelativePath);
 
         CollectSingleFile(dotClaudeDir, "settings.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectSingleFile(dotClaudeDir, "settings.local.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectSingleFile(dotClaudeDir, "keybindings.json", ClaudeDiscoveryCategory.Keybinding, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
-
-        var projectsDir = Path.Combine(dotClaudeDir, "projects");
-        if (Directory.Exists(projectsDir))
-        {
-            foreach (var projDir in Directory.GetDirectories(projectsDir))
-            {
-                var projMemoryDir = Path.Combine(projDir, "memory");
-                if (Directory.Exists(projMemoryDir))
-                {
-                    foreach (var f in SafeEnumerateFilesRecursive(projMemoryDir, 2))
-                    {
-                        if (!IsCandidateAllowed(f)) continue;
-                        directCandidates.Add(f);
-                        categoryByPath[f] = ClaudeDiscoveryCategory.ProjectMemory;
-                        explicitRelativePath[f] = Path.GetRelativePath(dotClaudeDir, f).Replace('\\', '/');
-                    }
-                }
-            }
-        }
     }
 
     public static bool ExtractSanitizedMcpConfig(string claudeJsonPath, string outputPath)
