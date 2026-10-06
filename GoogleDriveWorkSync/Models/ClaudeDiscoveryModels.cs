@@ -13,13 +13,14 @@ public static class ClaudeDiscoveryCategory
     public const string Agent = "Agente";
     public const string ScheduledTask = "Tarea Programada";
     public const string Hook = "Hook";
+    public const string Mod = "Mod";
     public const string GlobalSetting = "Configuración Global";
     public const string Keybinding = "Atajos de Teclado";
     public const string McpConfig = "Configuración MCP";
 
     public static readonly string[] DisplayOrder =
     {
-        Context, Skill, Agent, ScheduledTask, Hook,
+        Context, Skill, Agent, ScheduledTask, Hook, Mod,
         GlobalSetting, Keybinding, McpConfig
     };
 }

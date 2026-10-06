@@ -51,6 +51,12 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         ".ps1", ".sh", ".py", ".js", ".cmd", ".bat"
     };
 
+    private static readonly HashSet<string> ModFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".txt",
+        ".css", ".ps1", ".sh", ".py", ".cmd", ".bat", ".yaml", ".yml", ".toml"
+    };
+
     private static readonly string[] SensitiveMcpKeyFragments =
     {
         "token", "key", "secret", "password", "auth", "header", "env"
@@ -367,6 +373,33 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         return true;
     }
 
+    public static bool IsModFileAllowed(string filePath)
+    {
+        var normalizedPath = filePath.Replace('\\', '/');
+        if (normalizedPath.Contains("/.claude-plugin/types/", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var ext = Path.GetExtension(filePath);
+        if (!ModFileExtensions.Contains(ext))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(filePath);
+        foreach (var keyword in SensitiveNameKeywords)
+        {
+            if (fileName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        if (HasInfrastructureSecret(filePath))
+            return false;
+
+        return true;
+    }
+
     public static bool HasInfrastructureSecret(string filePath)
     {
         try
@@ -424,6 +457,7 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         CollectCategoryFiles(dotClaudeDir, "agents", 1, ClaudeDiscoveryCategory.Agent, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "scheduled-tasks", 3, ClaudeDiscoveryCategory.ScheduledTask, IsCandidateAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "hooks", 1, ClaudeDiscoveryCategory.Hook, IsHookScriptAllowed, directCandidates, categoryByPath, explicitRelativePath);
+        CollectCategoryFiles(dotClaudeDir, "mods", 4, ClaudeDiscoveryCategory.Mod, IsModFileAllowed, directCandidates, categoryByPath, explicitRelativePath);
 
         CollectSingleFile(dotClaudeDir, "settings.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectSingleFile(dotClaudeDir, "settings.local.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);

@@ -307,4 +307,39 @@ public class ClaudeDiscoveryServiceTests : IDisposable
         Assert.Equal("custom-claude-root/untracked-notes/CLAUDE.md", noRepoPath);
         Assert.Equal("custom-claude-root/global-ai-configs/skills/test/SKILL.md", configPath);
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_FindsModsInHomeDotClaude_AndExcludesGeneratedSdkTypes()
+    {
+        string modRoot = Path.Combine(_fakeHomeDir, ".claude", "mods", "child-sessions");
+        Directory.CreateDirectory(Path.Combine(modRoot, ".claude-plugin", "types", "claude-code"));
+        Directory.CreateDirectory(Path.Combine(modRoot, "hooks"));
+        Directory.CreateDirectory(Path.Combine(modRoot, "types"));
+
+        File.WriteAllText(Path.Combine(modRoot, "tsconfig.json"), "{ \"extends\": \"./.claude-plugin/types/tsconfig.json\" }");
+        File.WriteAllText(Path.Combine(modRoot, ".claude-plugin", "plugin.json"), "{ \"name\": \"child-sessions\" }");
+        File.WriteAllText(Path.Combine(modRoot, "hooks", "hooks.json"), "{ \"modules\": [\"./register.tsx\"] }");
+        File.WriteAllText(Path.Combine(modRoot, "hooks", "register.tsx"), "export default function register() {}");
+        File.WriteAllText(Path.Combine(modRoot, "types", "index.d.ts"), "export interface Session {}");
+
+        // Auto-generated SDK types that must be excluded
+        File.WriteAllText(Path.Combine(modRoot, ".claude-plugin", "types", "tsconfig.json"), "{}");
+        File.WriteAllText(Path.Combine(modRoot, ".claude-plugin", "types", "claude-code", "index.d.ts"), "declare module 'claude-code' {}");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_tempDir, maxDepth: 3);
+
+        var modCandidates = report.Candidates.Where(c => c.Category == ClaudeDiscoveryCategory.Mod).ToList();
+        Assert.Equal(5, modCandidates.Count);
+        Assert.Contains(modCandidates, c => c.RelativePath == "mods/child-sessions/tsconfig.json");
+        Assert.Contains(modCandidates, c => c.RelativePath == "mods/child-sessions/.claude-plugin/plugin.json");
+        Assert.Contains(modCandidates, c => c.RelativePath == "mods/child-sessions/hooks/hooks.json");
+        Assert.Contains(modCandidates, c => c.RelativePath == "mods/child-sessions/hooks/register.tsx");
+        Assert.Contains(modCandidates, c => c.RelativePath == "mods/child-sessions/types/index.d.ts");
+
+        Assert.DoesNotContain(report.Candidates, c => c.RelativePath.Contains(".claude-plugin/types/", StringComparison.OrdinalIgnoreCase));
+
+        string drivePath = service.BuildDriveRelativePath(modCandidates.First(c => c.RelativePath == "mods/child-sessions/hooks/register.tsx"));
+        Assert.Equal("claude-md-unversioned/_claude-config/mods/child-sessions/hooks/register.tsx", drivePath);
+    }
 }

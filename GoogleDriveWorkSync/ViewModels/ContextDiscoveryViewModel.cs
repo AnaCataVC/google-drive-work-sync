@@ -223,9 +223,13 @@ public partial class ContextDiscoveryViewModel : ObservableObject
                 DriveSyncProgressDetail = $"Subiendo {Path.GetFileName(candidate.FilePath)} ({i + 1} de {toUpload.Count})...";
 
                 string destinationPath = _discoveryService.BuildDriveRelativePath(candidate);
+                string ext = Path.GetExtension(candidate.FilePath);
                 string mimeType = candidate.Category switch
                 {
                     ClaudeDiscoveryCategory.Hook => "text/plain",
+                    ClaudeDiscoveryCategory.Mod when string.Equals(ext, ".json", StringComparison.OrdinalIgnoreCase) => "application/json",
+                    ClaudeDiscoveryCategory.Mod when string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase) => "text/markdown",
+                    ClaudeDiscoveryCategory.Mod => "text/plain",
                     ClaudeDiscoveryCategory.GlobalSetting or ClaudeDiscoveryCategory.Keybinding or ClaudeDiscoveryCategory.McpConfig => "application/json",
                     _ => "text/markdown"
                 };
