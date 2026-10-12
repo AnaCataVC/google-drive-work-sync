@@ -82,6 +82,63 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ==========================================
+    // ACTION: TRASH ORPHAN FILES (Safe 30-Day Trash)
+    // ==========================================
+    if (body.action === "trash") {
+      var filesToTrash = body.files || [];
+      var trashResults = [];
+
+      for (var i = 0; i < filesToTrash.length; i++) {
+        var entry = filesToTrash[i];
+        var relativePath = entry.relativePath;
+        var fileId = entry.fileId;
+
+        try {
+          var targetFile = null;
+
+          if (fileId) {
+            try {
+              targetFile = DriveApp.getFileById(fileId);
+            } catch (idErr) {
+              targetFile = null;
+            }
+          }
+
+          if (!targetFile && relativePath && rootFolderId) {
+            targetFile = resolveFileByPath(rootFolderId, relativePath);
+          }
+
+          if (targetFile) {
+            if (!targetFile.isTrashed()) {
+              targetFile.setTrashed(true);
+              trashResults.push({ relativePath: relativePath, fileId: fileId, status: "trashed" });
+            } else {
+              trashResults.push({ relativePath: relativePath, fileId: fileId, status: "already_trashed" });
+            }
+          } else {
+            trashResults.push({ relativePath: relativePath, fileId: fileId, status: "not_found" });
+          }
+        } catch (trashErr) {
+          trashResults.push({
+            relativePath: relativePath,
+            fileId: fileId,
+            status: "error",
+            message: trashErr.toString()
+          });
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        action: "trash",
+        results: trashResults
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ==========================================
+    // ACTION: BATCH UPLOAD (Incremental Sync)
+    // ==========================================
     var files = body.files || [];
     var folderCache = PropertiesService.getScriptProperties();
     var results = [];
@@ -157,6 +214,24 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Traverses folder hierarchy from rootFolderId to find a file by relative path.
+ */
+function resolveFileByPath(rootFolderId, relativePath) {
+  var parts = relativePath.split('/').filter(function(p) { return p.length > 0; });
+  if (parts.length === 0) return null;
+  var currentFolder = DriveApp.getFolderById(rootFolderId);
+
+  for (var i = 0; i < parts.length - 1; i++) {
+    var subFolders = currentFolder.getFoldersByName(parts[i]);
+    if (!subFolders.hasNext()) return null;
+    currentFolder = subFolders.next();
+  }
+
+  var files = currentFolder.getFilesByName(parts[parts.length - 1]);
+  return files.hasNext() ? files.next() : null;
 }
 ```
 

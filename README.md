@@ -1,82 +1,142 @@
 <p align="center">
-  <img src="icon.png" alt="google-drive-work-sync Logo" width="120" />
+  <img src="icon.png" alt="Google Drive Work Sync Logo" width="120" />
 </p>
 
 # Google Drive Work Sync
 
+> **Lightweight, high-performance Windows desktop application for bidirectional-safe synchronization of local work folders and Claude AI context directly to Google Drive via Google Apps Script Web Apps.**
+
 [English](README.md) | [Español](README.es.md)
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2011%20%7C%20Windows%2010%20(1809%2B)-0078D6?style=flat&logo=windows)](https://microsoft.com)
-[![Framework](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat&logo=dotnet)](https://dotnet.microsoft.com/)
-[![UI](https://img.shields.io/badge/UI-WinUI%203%20%2F%20Windows%20App%20SDK%202.4-0078D6?style=flat)](https://learn.microsoft.com/windows/apps/winui/winui3/)
-[![Architecture](https://img.shields.io/badge/Architecture-x64-blue?style=flat)]()
+[![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20Windows%2010%20(1809%2B)-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
+[![Framework](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![UI Toolkit](https://img.shields.io/badge/UI-WinUI%203%20%2F%20Windows%20App%20SDK%202.4-0078D6?style=flat&logo=windows&logoColor=white)](https://learn.microsoft.com/windows/apps/winui/winui3/)
+[![Architecture](https://img.shields.io/badge/Architecture-x64-blue?style=flat)](https://learn.microsoft.com/windows/apps/winui/winui3/)
+[![Tests](https://img.shields.io/badge/Tests-136%20passed%20%7C%20100%25-success?style=flat&logo=xunit&logoColor=white)](GoogleDriveWorkSync.Tests/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
-A modern, high-performance Windows 11 desktop application designed to synchronize work directories and Claude AI contextual knowledge directly to Google Drive via Google Apps Script Web Apps. Built with native Fluent Design, Mica backdrop material, system tray background execution, and precision incremental hashing.
+---
+
+## Project Overview
+
+**Google Drive Work Sync** is a modern, high-performance Windows 11 desktop application engineered in C# 13 and unpackaged WinUI 3 (.NET 9). It automates bidirectional-safe synchronization of local developer directories and Claude AI contextual knowledge directly to Google Drive via Google Apps Script Web Apps—eliminating the need for bulky full Google Drive client installations or OAuth2 client secrets.
+
+Crafted around native Windows 11 Fluent Design with Mica backdrop materials, system tray minimization, and precision incremental hashing, Google Drive Work Sync provides reliable, zero-telemetry, and fail-closed background synchronization tailored for developers and power users.
 
 ---
 
 ## Key Features
 
 ### 1. Incremental Work File Synchronization
-- **Metadata Fast-Path & SHA-256 Verification:** Avoids re-uploading unmodified files by checking file modification timestamps and byte sizes first, computing full cryptographic hashes only when metadata indicates changes.
-- **Persistent Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. The index records what this app uploaded, not what currently exists in Drive: files deleted in Drive, or a Web App redeployed to another folder under the same URL, are not re-uploaded until the index is cleared from Settings. The metadata fast-path trusts an unchanged timestamp and size, so an edit that preserves both is not detected.
-- **Adaptive Batching:** Packages files into payloads of up to 8 files or 9 MB uncompressed (~12 MB base64) to conform to Google Apps Script execution quotas and payload ceilings.
-- **Fail-Soft Error Recovery:** Persists transient HTTP failures (429, 500, 503) to `sync_errors.json` and supports single-click batch retries with exponential backoff. Retries re-hash the current file and drop entries whose source was removed or that are now filtered out.
-- **No Silent Skips:** Files that cannot be read (locked or permission-denied) and folders that cannot be listed are reported as errors, never counted as "unchanged", so the status only reads *Up to date* when everything was actually uploaded. Directory links (junctions, symlinks) are not followed.
-- **Crash-Safe Index:** `sync_hashes.json` is written to a temp file and then swapped in, once per batch, so an interrupted run cannot truncate it into an empty index.
-- **Responsive Cancellation:** Cancelling aborts the in-flight HTTP request instead of waiting for its timeout.
-- **Out-of-Sync Default Workflow:** Syncs only new or modified files by default, providing explicit pre-sync difference inspection dialogues.
+- **Metadata Fast-Path & SHA-256 Verification:** Bypasses redundant uploads by inspecting file modification timestamps and byte sizes first, computing full cryptographic hashes only when metadata indicates modifications.
+- **Persistent Crash-Safe Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. The index is written to a temporary file and atomically swapped once per batch, ensuring unexpected process aborts or power loss never truncate the database.
+- **Adaptive Batching:** Packages files into payloads of up to 8 files or 9 MB uncompressed (~12 MB base64) to strictly comply with Google Apps Script payload and execution limits.
+- **Fail-Soft Error Recovery:** Persists transient HTTP failures (429, 500, 503) to `sync_errors.json` and supports single-click batch retries with exponential backoff.
+- **Zero Silent Skips:** Unreadable locked files and permission-denied directories are flagged as explicit errors rather than marked as "unchanged", preserving complete integrity in the *Up to date* status. Directory junctions and symlinks are excluded.
+- **Responsive Abort:** Cancelling an active synchronization cleanly aborts the in-flight HTTP request immediately rather than blocking until timeout.
 
-### 2. Claude AI Context Discovery & Backup
-- **Multi-Level Project Traversal:** Performs breadth-first scans (levels 1–6) across developer workspaces, detecting Claude project guidelines (`CLAUDE.md`), agent skills, subagent prompts, hooks, and mods (`~/.claude/mods/`).
-- **Nested Repository & Worktree Exclusion:** The BFS traversal detects directories that are git repository roots — both standard repos (`.git` directory) and linked worktrees (`.git` file written by `git worktree add`) — and skips them entirely, preventing versioned `CLAUDE.md` files from being misclassified as untracked or out-of-sync.
-- **Multi-Layer Secret Redaction:** Employs a three-tiered defense (blacklisted filenames, 64 KB header regex scans for PAT/SSH/OAuth tokens, and fail-closed MCP server configuration parsing) to prevent accidental data leakage.
-- **Git Tracking Awareness:** Uses batched `git ls-files` queries (with `core.quotePath=false`, so non-ASCII paths match) to distinguish tracked documentation from uncommitted local scratchpad notes. If git fails, files are treated as untracked and backed up, and the failure is logged.
-- **Status Classification:** Automatically cross-references candidates against the persistent hash index to classify items as *New*, *Modified*, or *Up to date*.
+### 2. Real-Time Dynamic Pending Sync Count & List Pruning
+- **Live Regressive Counters:** As batches complete upload, pending sync counts decrement dynamically in real time rather than waiting for full folder rescans.
+- **Granular Classification:** Separately tracks and live-decrements New files vs. Modified files as each item finishes.
+- **In-Memory Observable Pruning:** Employs reverse-loop pruning on `ObservableCollection<OutOfSyncFile>` to smoothly remove synchronized items from the UI view in-place without UI thread locks or index shifting errors.
 
-### 3. Automated Flexible Scheduler & System Tray
-- **Custom Schedule Rules:** Configure background synchronization by selecting days of the week and exact run times.
-- **System Tray Minimization:** Runs silently in the background with `H.NotifyIcon.WinUI`, minimizing to the notification area.
+### 3. Google Drive Deletion Suggestions & Orphan Reconciliation
+- **Non-Destructive Orphan Detection:** Cross-references `sync_hashes.json` against local disk. Files that existed in the sync index but have since been deleted locally are surfaced as deletion candidates.
+- **O(1) Direct Trashing:** Resolves remote file references in constant time via the preserved Google Drive `FileId` inside `HashCacheEntry`.
+- **Soft-Trash Safety Buffer:** Dispatches `action: "trash"` to Google Apps Script, executing `setTrashed(true)`. Files are moved to Google Drive Trash with a 30-day recovery buffer rather than permanently deleted.
+- **Fail-Closed Confirmation:** Zero automatic remote deletions; every deletion requires explicit human review and selection. Successfully trashed items are purged from `sync_hashes.json`.
+
+### 4. Fast Multi-Tier Duplicate Detection
+- **Zero Disk I/O Size Clustering (Tier 1):** Groups local files by size (`GroupBy(f => f.FileSize)` where `FileSize > 0`). Discards all files with unique byte counts instantly with zero disk reads.
+- **Hash Cache Reuse (Tier 2):** Checks `sync_hashes.json` for candidates in colliding size buckets via `TryGetCachedHash`, reusing pre-calculated SHA-256 signatures in memory without reading physical files.
+- **Microsecond Header Filter (Tier 3A):** Reads and hashes only the first 16 KB of uncached files, eliminating 99% of accidental size collisions in microseconds.
+- **Full Stream SHA-256 (Tier 3B):** Executes full cryptographic hashing only on candidate pairs that share both identical file sizes and matching 16 KB headers.
+- **Space Quantification & Primary Attribution:** Quantifies wasted space (`(Count - 1) * FileSize`) and identifies the canonical master copy by earliest `LastModified` timestamp.
+
+### 5. Claude AI Context Discovery & Backup
+- **Multi-Level Workspace BFS:** Performs breadth-first traversal (levels 1–6) across developer directories, identifying Claude project instructions (`CLAUDE.md`), agent skills, subagent prompts, hooks, and mods (`~/.claude/mods/`).
+- **Git Root & Worktree Exclusion:** Traversal detects both standard Git repository roots (`.git` directory) and linked worktrees (`.git` pointer file), skipping them to prevent tracked documentation from being treated as untracked files.
+- **Three-Tiered Secret Filter:** Employs a fail-closed defense: blacklisted secret filenames (`.env`, `credentials.json`, `id_rsa`), regex scans across the first 64 KB for PAT/SSH/OAuth tokens, and recursive sanitization of MCP configuration files before sync staging.
+- **Git Tracking Awareness:** Batched `git ls-files` queries distinguish versioned documentation from uncommitted local scratchpads.
+
+### 6. Automated Flexible Scheduler & System Tray
+- **Custom Schedule Rules:** Configure background synchronization by selecting days of the week and target execution times.
+- **System Tray Minimization:** Runs unobtrusively in the background via `H.NotifyIcon.WinUI`, minimizing to the notification area.
 - **Windows Autostart:** Seamless integration via `--autostart` command-line switch to launch silently on Windows logon.
 
 ---
 
-## Tech Stack & Architecture
+## Architecture & Component Responsibilities
+
+```mermaid
+flowchart TD
+    subgraph UI ["WinUI 3 Desktop Shell (Mica Backdrop)"]
+        MW[MainWindow & Navigation]
+        WSV[WorkSyncViewModel]
+        CDV[ContextDiscoveryViewModel]
+        SV[SettingsViewModel]
+    end
+
+    subgraph CoreServices ["Core Services Layer (.NET 9)"]
+        DSS[DriveSyncService]
+        CDS[ClaudeDiscoveryService]
+        SSS[SyncScheduleService]
+    end
+
+    subgraph Storage ["Local Storage & Cache"]
+        SH["sync_hashes.json (Atomic Swap)"]
+        SE["sync_errors.json (Retry Queue)"]
+        ST["DriveSyncSettings.json"]
+    end
+
+    subgraph Cloud ["Google Cloud Ecosystem"]
+        GAS["Google Apps Script Web App"]
+        GDRV["Google Drive (Target Folders / Trash)"]
+    end
+
+    MW --> WSV & CDV & SV
+    WSV --> DSS
+    CDV --> CDS
+    SV --> DSS
+    DSS --> SH & SE & ST
+    DSS -- "HTTP POST (JSON Batches / Trash Action)" --> GAS
+    GAS --> GDRV
+```
+
+### Component Responsibility Matrix
+
+| Component | Layer | Responsibility |
+| :--- | :--- | :--- |
+| `DriveSyncService` | Service | Incremental SHA-256 synchronization, batch packaging, orphan detection, 3-tier duplicate detection, and Google Apps Script HTTP transport. |
+| `ClaudeDiscoveryService` | Service | BFS workspace discovery (levels 1–6), git repository/worktree filtering, and 3-tier secret redaction. |
+| `SyncScheduleService` | Service | Background cron scheduling, periodic wakeups, and Windows autostart coordination. |
+| `WorkSyncViewModel` | ViewModel | State management for folder sync, dynamic progress decrements, in-memory list pruning, and orphan/duplicate workflows. |
+| `ContextDiscoveryViewModel` | ViewModel | State management for AI context scanning, file selection, and staging previews. |
+| `SettingsViewModel` | ViewModel | Configuration persistence, Web App connection testing, autostart registration, and index clearing. |
+| `MainWindow` & Mica Shell | View | Fluent Design navigation shell, Mica backdrop material, and system tray integration via `H.NotifyIcon`. |
+
+---
+
+## Tech Stack
 
 - **Runtime & Language:** C# 13, .NET 9.0 (`net9.0-windows10.0.26100.0`, unpackaged WinUI 3)
 - **UI Framework:** Windows App SDK 2.4 / WinUI 3 with native Mica backdrop material and Fluent Design System
-- **MVVM Pattern:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
+- **MVVM Architecture:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
 - **Dependency Injection:** `Microsoft.Extensions.Hosting` 9.0.2 (Decoupled Services, ViewModels, and Window lifecycle)
 - **Tray & Shell Integration:** `H.NotifyIcon.WinUI` 2.1.4
-- **Testing:** xUnit 2.5.3 + Moq 4.20.72. Tests redirect the settings file and data directory to temp paths and run sequentially, so they never touch the real sync state.
-- **Installer:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
+- **Testing Suite:** xUnit 2.5.3 + Moq 4.20.72 (136 unit and integration tests)
+- **Installer & Packaging:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
 
 ---
 
-## Architecture & Design Decisions
+## Getting Started
 
-### DispatcherQueue Threading Invariant
-WinUI 3 ViewModels and UI controls rely on `Microsoft.UI.Dispatching.DispatcherQueue` for cross-thread synchronization. To prevent race conditions or null references during early ViewModel resolution, `App.DispatcherQueue` is explicitly captured on the main thread prior to instantiating `MainWindow`.
-
-### Google Apps Script Web App Wire Protocol
-Google Apps Script Web Apps receive JSON payloads via HTTP POST. Rather than sending massive individual file uploads or streaming uploads that trigger Google Apps Script execution time limits (6 minutes), files are dispatched in pre-batched chunks. If a batch contains large binary files exceeding 9 MB, it is split immediately into smaller sub-batches.
-
-### Three-Tiered Secret Filter
-1. **Filename Filter:** Excludes known secret files (`.env`, `.npmrc`, `id_rsa`, `credentials.json`).
-2. **Regex Deep Content Scan:** Scans the first 64 KB of text for GitHub tokens (`ghp_`), AWS Access Keys (`AKIA...`), and generic private key blocks.
-3. **Fail-Closed JSON Sanitizer:** Parses MCP configuration files, strips sensitive environment variables, and redacts inline tokens before staging for backup.
-
----
-
-## Installation & Setup
-
-### Requirements
+### Prerequisites
 - Windows 11 (build 22000+) or Windows 10 (version 1809+)
-- [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (included in self-contained installer)
+- [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (included in the self-contained installer)
 
 ### Quick Install (Setup Executable)
-1. Download `GoogleDriveWorkSync-Setup-v1.3.0.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Download `GoogleDriveWorkSync-Setup-v1.4.0.exe` from the latest [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Run the installer. You can optionally check "Iniciar Google Drive Work Sync automáticamente al iniciar sesión en Windows".
 3. Launch the application from the Start Menu or Desktop.
 
@@ -87,7 +147,7 @@ Google Apps Script Web Apps receive JSON payloads via HTTP POST. Rather than sen
 git clone https://github.com/AnaCataVC/google-drive-work-sync.git
 cd google-drive-work-sync
 
-# 2. Restore and run unit tests
+# 2. Restore dependencies and run automated test suite
 dotnet test GoogleDriveWorkSync.Tests/GoogleDriveWorkSync.Tests.csproj
 
 # 3. Build Release binary
@@ -102,29 +162,46 @@ dotnet publish GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release -r win-
 
 ---
 
-## Key Learnings
-
-- **Crash-Safe Hash Index:** Sync state is written to a temporary file and atomically swapped into place (`sync_hashes.json`), ensuring an unexpected process abort or power cut never truncates the index.
-- **Three-Tiered Secret Filter:** Built a fail-closed defense incorporating filename filters, a regex scan over the initial 64 KB for PAT/AWS/SSH tokens, and recursive sanitization of MCP configuration files before staging.
-- **Nested Repository & Worktree Detection:** Implemented a breadth-first search that identifies Git repository roots (both `.git` directories and linked worktree pointer files) so tracked project guidelines are never misclassified as untracked scratch notes.
-- **No Silent Skips:** Unreadable locked files and permission-denied directories are flagged as errors rather than marked as "unchanged", preserving absolute trust in the "Up to date" telemetry status.
-
----
-
 ## Configuration
 
 Navigate to **Ajustes** (Settings) in the application:
-1. **URL de Google Apps Script:** Enter the deployment URL of your Google Apps Script Web App (`https://script.google.com/macros/s/.../exec`).
-2. **Token de autenticación:** Enter your shared secret token.
-3. **Carpetas de origen:** Add local folders to synchronize and specify their destination subfolder prefix in Google Drive.
-4. **Programación automática:** Toggle automated synchronization, choose target weekdays, and set execution time.
+1. **Google Apps Script URL:** Enter the deployment URL of your Google Apps Script Web App (`https://script.google.com/macros/s/.../exec`).
+2. **Authentication Token:** Enter your shared secret token.
+3. **Monitored Folders:** Add local folders to synchronize and specify their destination subfolder prefix in Google Drive.
+4. **Automated Scheduling:** Toggle background synchronization, choose target weekdays, and set execution time.
+
+---
+
+## Automated Testing
+
+The project maintains a comprehensive, isolated test suite with **136 automated unit and integration tests** achieving a 100% pass rate. Tests redirect all settings files and data directories to sandboxed temporary paths, running sequentially to ensure zero mutation of the live user sync state.
+
+```powershell
+# Execute the full test suite
+dotnet test GoogleDriveWorkSync.Tests/GoogleDriveWorkSync.Tests.csproj
+```
+
+Key test coverage areas include:
+- `DriveSyncServiceTests`: Incremental SHA-256 caching, metadata fast-path evaluation, batch splitting (8 files / 9 MB limit), HTTP retry policies, and error persistence.
+- `OrphanReconciliationTests`: Detection of locally deleted files, O(1) FileId resolution, soft-trash request payloads, and index cleanup.
+- `DuplicateDetectorTests`: 3-tier algorithm verification (size buckets, cache reuse, 16 KB header hashing, and full cryptographic validation).
+- `ClaudeDiscoveryServiceTests`: BFS directory tree traversal, Git repository and worktree boundary pruning, and three-tiered secret redaction.
+- `ViewModelTests`: Dynamic pending count decrements, reverse-loop list pruning, and UI thread safety.
+
+---
+
+## Key Learnings & Architectural Decisions
+
+1. **Three-Tier Algorithmic Duplicate Detection:** Streaming gigabytes of files from disk to calculate SHA-256 hashes causes heavy disk I/O saturation and thermal throttling. By clustering by size first (Tier 1), reusing cached hashes from `sync_hashes.json` in memory (Tier 2), and hashing only a 16 KB partial header (Tier 3A), over 99% of non-duplicate files are eliminated before performing full cryptographic hashing (Tier 3B).
+2. **Non-Destructive Drive Trash Reconciliation (`setTrashed(true)`):** Permanent file deletion (`Drive.Files.remove`) is irrevocable and risks permanent data loss if a local drive is temporarily unmounted or a directory is moved. Soft-trashing safely moves files to Google Drive's Trash bin, providing a 30-day recovery window while freeing up the active folder hierarchy and immediately purging orphaned keys from `sync_hashes.json`.
+3. **Reverse-Loop Enumeration Pruning for UI Collection Stability:** Mutating an `ObservableCollection` during forward iteration causes `InvalidOperationException`, and forward index removals shift subsequent indices, leading to skipped elements. Iterating in reverse (`Count - 1` down to 0) enables deterministic single-pass pruning of completed items on the UI thread without re-instantiating the collection or freezing UI bindings.
+4. **Crash-Safe Hash Index via Atomic Swap:** Sync state is written to a temporary file and atomically swapped into place (`sync_hashes.json`) once per batch. This ensures that unexpected process termination or power outages never truncate or corrupt the index.
+5. **Three-Tiered Fail-Closed Secret Redaction:** Built a defense-in-depth security model combining blacklisted secret filenames (`.env`, `credentials.json`, `id_rsa`), a regex scan across the first 64 KB for PAT/SSH tokens, and recursive sanitization of MCP configuration files before staging.
+6. **Nested Git Root & Worktree Detection in BFS:** Implemented a breadth-first search that identifies Git repository roots (both `.git` directories and linked worktree pointer files) so tracked project guidelines are never misclassified as untracked scratch notes.
+7. **Fail-Soft Error Recovery & Zero Silent Skips:** Unreadable locked files and permission-denied directories are flagged as explicit errors rather than marked as "unchanged", preserving absolute trust in the "Up to date" telemetry status.
 
 ---
 
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-
-
-

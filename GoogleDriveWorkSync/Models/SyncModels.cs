@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace GoogleDriveWorkSync.Models;
 
@@ -153,6 +154,43 @@ public class HashCacheEntry
     public string Hash { get; set; } = string.Empty;
     public long LastWriteTimeUtcTicks { get; set; }
     public long FileSize { get; set; }
+    public string? FileId { get; set; }
+    public string? DriveRelativePath { get; set; }
+}
+
+/// <summary>
+/// Represents an individual orphan file detected during reconciliation.
+/// </summary>
+public class DriveOrphanItem : ObservableObject
+{
+    public string HashKey { get; set; } = string.Empty;
+    public string LocalFilePath { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string DriveRelativePath { get; set; } = string.Empty;
+    public string? FileId { get; set; }
+    public long FileSize { get; set; }
+    public string FormattedFileSize => OutOfSyncFile.FormatBytes(FileSize);
+    public DateTime? LastWriteTimeUtc { get; set; }
+
+    private bool _isSelected = true;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
+/// <summary>
+/// Summary of batch trash execution.
+/// </summary>
+public class TrashResultSummary
+{
+    public int TotalRequested { get; set; }
+    public int SuccessfullyTrashed { get; set; }
+    public int NotFoundCount { get; set; }
+    public int ErrorCount { get; set; }
+    public List<string> ErrorMessages { get; set; } = new();
+    public bool Success => ErrorCount == 0;
 }
 
 /// <summary>
@@ -171,6 +209,17 @@ public class SyncErrorItem
 }
 
 /// <summary>
+/// Represents an individual file completed during an incremental batch report.
+/// </summary>
+public class CompletedSyncItem
+{
+    public string FilePath { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public bool IsNew { get; set; }
+    public bool Success { get; set; }
+}
+
+/// <summary>
 /// Real-time progress report during synchronization.
 /// </summary>
 public class SyncProgressReport
@@ -183,7 +232,13 @@ public class SyncProgressReport
     public int ErrorCount { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
     public int Percentage => TotalFiles == 0 ? 100 : (int)Math.Round(ProcessedFiles * 100.0 / TotalFiles);
+
+    // Dynamic tracking extensions
+    public int TotalPendingFiles { get; set; }
+    public int RemainingPendingFiles => Math.Max(0, TotalPendingFiles - UploadedCount - ErrorCount);
+    public IReadOnlyList<CompletedSyncItem> CompletedItems { get; set; } = Array.Empty<CompletedSyncItem>();
 }
+
 
 /// <summary>
 /// Final summary of a sync operation.
@@ -198,3 +253,57 @@ public class SyncResultSummary
     public bool Success => Errors == 0;
     public List<SyncErrorItem> FailedFiles { get; set; } = new();
 }
+
+/// <summary>
+/// Represents an individual file that is part of a duplicate group.
+/// </summary>
+public class DuplicateFileItem : ObservableObject
+{
+    public string FilePath { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
+    public long FileSize { get; set; }
+    public string FormattedFileSize => OutOfSyncFile.FormatBytes(FileSize);
+    public DateTime LastModified { get; set; }
+    public bool IsPrimary { get; set; }
+
+    private bool _isSelected;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
+/// <summary>
+/// Represents a collection of files sharing identical size and full SHA-256 content hash.
+/// </summary>
+public class DuplicateFileGroup
+{
+    public string Hash { get; set; } = string.Empty;
+    public long FileSize { get; set; }
+    public string FormattedFileSize => OutOfSyncFile.FormatBytes(FileSize);
+    public List<DuplicateFileItem> Files { get; set; } = new();
+
+    /// <summary>
+    /// Redundant bytes consumed by this group: (Count - 1) * FileSize.
+    /// Exactly 1 copy is considered the primary retain copy; N - 1 are redundant.
+    /// </summary>
+    public long WastedBytes => Math.Max(0, (Files.Count - 1) * FileSize);
+    public string FormattedWastedBytes => OutOfSyncFile.FormatBytes(WastedBytes);
+}
+
+/// <summary>
+/// Summary container returned by DetectDuplicatesAsync.
+/// </summary>
+public class DuplicateScanResult
+{
+    public int TotalScannedFiles { get; set; }
+    public int CandidateSizeBuckets { get; set; }
+    public List<DuplicateFileGroup> Groups { get; set; } = new();
+    public int TotalDuplicateGroups => Groups.Count;
+    public int TotalDuplicateFiles => Groups.Sum(g => Math.Max(0, g.Files.Count - 1));
+    public long TotalWastedBytes => Groups.Sum(g => g.WastedBytes);
+    public string FormattedTotalWastedBytes => OutOfSyncFile.FormatBytes(TotalWastedBytes);
+}
+

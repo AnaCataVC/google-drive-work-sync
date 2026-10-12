@@ -77,6 +77,8 @@ public partial class WorkSyncViewModel : ObservableObject
 
     public event EventHandler? OutOfSyncPreviewReady;
     public event EventHandler? SyncHistoryRequested;
+    public event EventHandler? CleanupSuggestionsRequested;
+    public event EventHandler? DuplicatesInspectorRequested;
 
     public WorkSyncViewModel(IDriveSyncService driveSyncService)
     {
@@ -189,13 +191,70 @@ public partial class WorkSyncViewModel : ObservableObject
         }
     }
 
-    private void OnSyncProgressChanged(object? sender, SyncProgressReport report)
+    public void OnSyncProgressChanged(object? sender, SyncProgressReport report)
     {
+        if (report == null) return;
+
         RunOnUIThread(() =>
         {
             DriveSyncProgress = report.Percentage;
             DriveSyncDetailText = report.StatusMessage;
+
+            if (report.TotalPendingFiles > 0)
+            {
+                OutOfSyncCount = report.RemainingPendingFiles;
+                HasOutOfSyncFiles = OutOfSyncCount > 0;
+                SyncActionTitle = OutOfSyncCount > 0
+                    ? $"Sincronizando ({OutOfSyncCount} pendientes)..."
+                    : "Completando sincronización...";
+            }
+
+            if (report.CompletedItems != null && report.CompletedItems.Count > 0)
+            {
+                foreach (var item in report.CompletedItems)
+                {
+                    if (!item.Success)
+                        continue;
+
+                    if (item.IsNew)
+                    {
+                        NewFilesCount = Math.Max(0, NewFilesCount - 1);
+                    }
+                    else
+                    {
+                        ModifiedFilesCount = Math.Max(0, ModifiedFilesCount - 1);
+                    }
+
+                    for (int i = OutOfSyncFilesList.Count - 1; i >= 0; i--)
+                    {
+                        var f = OutOfSyncFilesList[i];
+                        bool matches = (!string.IsNullOrEmpty(item.FilePath) &&
+                                        (PathEquals(f.FilePath, item.FilePath) || PathEquals(f.RelativePath, item.FilePath))) ||
+                                       (!string.IsNullOrEmpty(item.FileName) &&
+                                        string.Equals(f.FileName, item.FileName, StringComparison.OrdinalIgnoreCase));
+
+                        if (matches)
+                        {
+                            OutOfSyncFilesList.RemoveAt(i);
+                            break;
+                        }
+                    }
+                }
+            }
         });
+    }
+
+    private static bool PathEquals(string? path1, string? path2)
+    {
+        if (string.IsNullOrEmpty(path1) || string.IsNullOrEmpty(path2))
+            return false;
+
+        if (string.Equals(path1, path2, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var normalized1 = path1.Replace('\\', '/');
+        var normalized2 = path2.Replace('\\', '/');
+        return string.Equals(normalized1, normalized2, StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnSyncCompleted(object? sender, SyncResultSummary summary)
@@ -421,4 +480,28 @@ public partial class WorkSyncViewModel : ObservableObject
     {
         SyncHistoryRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    [RelayCommand]
+    public void OpenCleanupSuggestions()
+    {
+        CleanupSuggestionsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    public void OpenDuplicatesInspector()
+    {
+        DuplicatesInspectorRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    public Task<System.Collections.Generic.IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync()
+        => _driveSyncService.DetectOrphansAsync();
+
+    public Task<TrashResultSummary> TrashOrphansAsync(System.Collections.Generic.IEnumerable<DriveOrphanItem> orphans)
+        => _driveSyncService.TrashOrphansAsync(orphans);
+
+    public void DismissOrphans(System.Collections.Generic.IEnumerable<DriveOrphanItem> orphans)
+        => _driveSyncService.DismissOrphans(orphans);
+
+    public Task<DuplicateScanResult> DetectDuplicatesAsync()
+        => _driveSyncService.DetectDuplicatesAsync();
 }

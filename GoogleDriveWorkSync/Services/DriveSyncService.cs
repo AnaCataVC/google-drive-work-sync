@@ -39,6 +39,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     private const long MaxBatchRawBytes = 9L * 1024 * 1024;
 
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsClient;
     private readonly SemaphoreSlim _uploadSemaphore = new(1, 1);
     private readonly object _hashLock = new();
     private readonly object _errorLock = new();
@@ -72,6 +73,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     public DriveSyncService(HttpClient? httpClient = null)
     {
+        _ownsClient = httpClient == null;
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         _settings = LoadSettings();
         LoadHashIndex();
@@ -235,13 +237,14 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 file.Hash = classification.Hash!;
                 pendingUploads.Add(new UploadCandidate(
-                    file.FilePath, file.FileName, file.RelativePath, file.HashKey, file.Hash, classification.StatFileInfo!));
+                    file.FilePath, file.FileName, file.RelativePath, file.HashKey, file.Hash, classification.StatFileInfo!, classification.IsNew));
             }
 
             PersistHashIndex();
 
             if (!token.IsCancellationRequested)
             {
+                int totalPending = pendingUploads.Count;
                 var batches = BuildBatches(pendingUploads);
                 foreach (var batch in batches)
                 {
@@ -259,12 +262,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         UploadedCount = summary.Uploaded,
                         SkippedCount = summary.Skipped,
                         ErrorCount = summary.Errors,
+                        TotalPendingFiles = totalPending,
                         StatusMessage = batch.Count == 1
                             ? $"Subiendo: {batch[0].FileName}..."
                             : $"Subiendo lote de {batch.Count} archivos..."
                     });
 
-                    await ProcessBatchAsync(batch, summary, currentRunErrors, token);
+                    var completedItems = await ProcessBatchAsync(batch, summary, currentRunErrors, token);
 
                     ReportProgress(progress, new SyncProgressReport
                     {
@@ -274,6 +278,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         UploadedCount = summary.Uploaded,
                         SkippedCount = summary.Skipped,
                         ErrorCount = summary.Errors,
+                        TotalPendingFiles = totalPending,
+                        CompletedItems = completedItems,
                         StatusMessage = $"Progreso: {summary.Uploaded} subidos, {summary.Errors} errores."
                     });
                 }
@@ -435,9 +441,10 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 }
 
                 pendingRetries.Add(new UploadCandidate(
-                    item.FilePath, item.FileName, item.RelativePath, item.HashKey, currentHash, info));
+                    item.FilePath, item.FileName, item.RelativePath, item.HashKey, currentHash, info, GetKnownHash(item.HashKey) == null));
             }
 
+            int totalRetries = pendingRetries.Count;
             var batches = BuildBatches(pendingRetries);
             for (int bi = 0; bi < batches.Count; bi++)
             {
@@ -464,12 +471,26 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     UploadedCount = summary.Uploaded,
                     SkippedCount = summary.Skipped,
                     ErrorCount = summary.Errors,
+                    TotalPendingFiles = totalRetries,
                     StatusMessage = batch.Count == 1
                         ? $"Reintentando: {batch[0].FileName}..."
                         : $"Reintentando lote de {batch.Count} archivos..."
                 });
 
-                await ProcessBatchAsync(batch, summary, remainingErrors, token);
+                var completedItems = await ProcessBatchAsync(batch, summary, remainingErrors, token);
+
+                ReportProgress(progress, new SyncProgressReport
+                {
+                    TotalFiles = summary.TotalScanned,
+                    ProcessedFiles = processed,
+                    CurrentFileName = batch[^1].FileName,
+                    UploadedCount = summary.Uploaded,
+                    SkippedCount = summary.Skipped,
+                    ErrorCount = summary.Errors,
+                    TotalPendingFiles = totalRetries,
+                    CompletedItems = completedItems,
+                    StatusMessage = $"Progreso: {summary.Uploaded} subidos, {summary.Errors} errores."
+                });
             }
 
             lock (_errorLock)
@@ -619,7 +640,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             : CandidateSyncStatus.Modified;
     }
 
-    public sealed record UploadCandidate(string FilePath, string FileName, string RelativePath, string HashKey, string Hash, FileInfo Info);
+    public sealed record UploadCandidate(string FilePath, string FileName, string RelativePath, string HashKey, string Hash, FileInfo Info, bool IsNew = false);
     private sealed record BatchUploadResult(bool Success, string? FileId, string? ErrorMessage);
 
     public static List<List<UploadCandidate>> BuildBatches(List<UploadCandidate> candidates)
@@ -684,12 +705,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         _settings.ExcludedFolders,
         _settings.MaxFileSizeMb);
 
-    private async Task ProcessBatchAsync(
+    private async Task<List<CompletedSyncItem>> ProcessBatchAsync(
         List<UploadCandidate> batch,
         SyncResultSummary summary,
         List<SyncErrorItem> errorSink,
         CancellationToken token)
     {
+        var completedItems = new List<CompletedSyncItem>();
         try
         {
             var results = await UploadBatchAsync(batch, _settings.WebAppUrl, token);
@@ -700,8 +722,15 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 if (result.Success)
                 {
-                    SetKnownHash(candidate.HashKey, candidate.Hash, candidate.Info);
+                    SetKnownHash(candidate.HashKey, candidate.Hash, candidate.Info, result.FileId, candidate.RelativePath);
                     summary.Uploaded++;
+                    completedItems.Add(new CompletedSyncItem
+                    {
+                        FilePath = candidate.FilePath,
+                        FileName = candidate.FileName,
+                        IsNew = candidate.IsNew,
+                        Success = true
+                    });
                 }
                 else
                 {
@@ -710,6 +739,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     var errorItem = BuildErrorItem(candidate, category, friendlyMsg);
                     errorSink.Add(errorItem);
                     summary.FailedFiles.Add(errorItem);
+                    completedItems.Add(new CompletedSyncItem
+                    {
+                        FilePath = candidate.FilePath,
+                        FileName = candidate.FileName,
+                        IsNew = candidate.IsNew,
+                        Success = false
+                    });
                 }
             }
         }
@@ -719,6 +755,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             foreach (var candidate in batch)
             {
                 errorSink.Add(BuildErrorItem(candidate, "Cancelado", "Subida cancelada por el usuario."));
+                completedItems.Add(new CompletedSyncItem
+                {
+                    FilePath = candidate.FilePath,
+                    FileName = candidate.FileName,
+                    IsNew = candidate.IsNew,
+                    Success = false
+                });
             }
         }
         catch (Exception ex)
@@ -731,12 +774,21 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 var errorItem = BuildErrorItem(candidate, category, friendlyMsg);
                 errorSink.Add(errorItem);
                 summary.FailedFiles.Add(errorItem);
+                completedItems.Add(new CompletedSyncItem
+                {
+                    FilePath = candidate.FilePath,
+                    FileName = candidate.FileName,
+                    IsNew = candidate.IsNew,
+                    Success = false
+                });
             }
         }
         finally
         {
             PersistHashIndex();
         }
+
+        return completedItems;
     }
 
     private async Task<List<BatchUploadResult>> UploadBatchAsync(
@@ -985,6 +1037,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     private IEnumerable<SyncSource> EnumerateSources(SyncSource? onlySource = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool foundOnlySource = false;
 
         foreach (var source in _settings.Sources)
         {
@@ -996,7 +1049,18 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 continue;
 
             if (seen.Add($"{source.EffectiveDestinationPrefix}|{source.LocalFolderPath}"))
+            {
+                if (onlySource != null)
+                {
+                    foundOnlySource = true;
+                }
                 yield return source;
+            }
+        }
+
+        if (onlySource != null && !foundOnlySource && !string.IsNullOrWhiteSpace(onlySource.LocalFolderPath))
+        {
+            yield return onlySource;
         }
     }
 
@@ -1152,16 +1216,16 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
-    public void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null)
+    public void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null, string? fileId = null, string? driveRelativePath = null)
     {
-        SetKnownHash(hashKey, hash, fileInfo);
+        SetKnownHash(hashKey, hash, fileInfo, fileId, driveRelativePath);
         PersistHashIndex();
     }
 
     /// <summary>
     /// Updates the in-memory index only; bulk callers persist once per batch with <see cref="PersistHashIndex"/>.
     /// </summary>
-    private void SetKnownHash(string hashKey, string hash, FileInfo? fileInfo)
+    private void SetKnownHash(string hashKey, string hash, FileInfo? fileInfo, string? fileId = null, string? driveRelativePath = null)
     {
         lock (_hashLock)
         {
@@ -1169,7 +1233,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             {
                 Hash = hash,
                 LastWriteTimeUtcTicks = fileInfo != null ? fileInfo.LastWriteTimeUtc.Ticks : 0L,
-                FileSize = fileInfo?.Length ?? 0L
+                FileSize = fileInfo?.Length ?? 0L,
+                FileId = fileId,
+                DriveRelativePath = driveRelativePath
             };
         }
     }
@@ -1350,11 +1416,546 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
+    public async Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var orphans = new List<DriveOrphanItem>();
+            Dictionary<string, HashCacheEntry> snapshot;
+            lock (_hashLock)
+            {
+                snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
+            }
+
+            var activeSources = _settings.Sources
+                .Where(s => !string.IsNullOrWhiteSpace(s.LocalFolderPath))
+                .ToList();
+
+            foreach (var (key, entry) in snapshot)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var pipeIndex = key.IndexOf('|');
+                if (pipeIndex < 0)
+                    continue;
+
+                string prefix = key[..pipeIndex];
+                string localPath = key[(pipeIndex + 1)..];
+
+                var matchedSource = activeSources.FirstOrDefault(s =>
+                    string.Equals(s.EffectiveDestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(s.DestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase));
+
+                if (matchedSource == null)
+                    continue;
+
+                if (!File.Exists(localPath))
+                {
+                    string fileName = Path.GetFileName(localPath);
+                    string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
+                        ? entry.DriveRelativePath
+                        : (localPath.StartsWith(matchedSource.LocalFolderPath, StringComparison.OrdinalIgnoreCase)
+                            ? $"{prefix}/{Path.GetRelativePath(matchedSource.LocalFolderPath, localPath).Replace('\\', '/')}"
+                            : $"{prefix}/{fileName}");
+
+                    orphans.Add(new DriveOrphanItem
+                    {
+                        HashKey = key,
+                        LocalFilePath = localPath,
+                        FileName = fileName,
+                        DriveRelativePath = driveRelativePath,
+                        FileId = entry.FileId,
+                        FileSize = entry.FileSize,
+                        LastWriteTimeUtc = entry.LastWriteTimeUtcTicks > 0
+                            ? new DateTime(entry.LastWriteTimeUtcTicks, DateTimeKind.Utc)
+                            : null,
+                        IsSelected = true
+                    });
+                }
+            }
+
+            return (IReadOnlyList<DriveOrphanItem>)orphans;
+        }, cancellationToken);
+    }
+
+    public async Task<TrashResultSummary> TrashOrphansAsync(
+        IEnumerable<DriveOrphanItem> orphans,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var orphanList = orphans?.ToList() ?? new List<DriveOrphanItem>();
+        if (orphanList.Count == 0)
+        {
+            return new TrashResultSummary
+            {
+                TotalRequested = 0,
+                SuccessfullyTrashed = 0,
+                NotFoundCount = 0,
+                ErrorCount = 0
+            };
+        }
+
+        if (!IsConfigured)
+        {
+            return new TrashResultSummary
+            {
+                TotalRequested = orphanList.Count,
+                ErrorCount = orphanList.Count,
+                ErrorMessages = new List<string> { "La URL del Web App de Google Apps Script no está configurada." }
+            };
+        }
+
+        var summary = new TrashResultSummary
+        {
+            TotalRequested = orphanList.Count
+        };
+
+        await _uploadSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var fileEntries = orphanList.Select(o => new
+            {
+                fileId = o.FileId,
+                relativePath = o.DriveRelativePath
+            }).ToList();
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["action"] = "trash",
+                ["files"] = fileEntries
+            };
+
+            if (!string.IsNullOrWhiteSpace(_settings.AuthToken))
+            {
+                payload["authToken"] = _settings.AuthToken.Trim();
+            }
+
+            string requestJson = JsonSerializer.Serialize(payload);
+            var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _httpClient.PostAsync(_settings.WebAppUrl, content, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                summary.ErrorCount = orphanList.Count;
+                summary.ErrorMessages.Add($"Error de red al enviar solicitud de papelera: {ex.Message}");
+                return summary;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                summary.ErrorCount = orphanList.Count;
+                summary.ErrorMessages.Add($"El servidor respondió con código HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).");
+                return summary;
+            }
+
+            var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(responseString);
+            var root = doc.RootElement;
+
+            string status = root.TryGetProperty("status", out var sProp) ? sProp.GetString() ?? "" : "";
+            if (!string.Equals(status, "success", StringComparison.OrdinalIgnoreCase))
+            {
+                string errorMsg = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? "Error desconocido en el servidor." : "Error desconocido en el servidor.";
+                summary.ErrorCount = orphanList.Count;
+                summary.ErrorMessages.Add(errorMsg);
+                return summary;
+            }
+
+            var keysToPurge = new List<string>();
+
+            if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
+            {
+                var orphanByRelativePath = new Dictionary<string, DriveOrphanItem>(StringComparer.OrdinalIgnoreCase);
+                foreach (var orphan in orphanList)
+                {
+                    if (!string.IsNullOrEmpty(orphan.DriveRelativePath))
+                    {
+                        orphanByRelativePath[orphan.DriveRelativePath.TrimStart('/')] = orphan;
+                    }
+                }
+
+                int index = 0;
+                foreach (var item in resultsElement.EnumerateArray())
+                {
+                    string itemStatus = item.TryGetProperty("status", out var isProp) ? isProp.GetString() ?? "" : "";
+                    string relPath = item.TryGetProperty("relativePath", out var rpProp) ? rpProp.GetString() ?? "" : "";
+                    string cleanRelPath = relPath.TrimStart('/');
+
+                    DriveOrphanItem? matchingOrphan = null;
+                    if (!string.IsNullOrEmpty(cleanRelPath) && orphanByRelativePath.TryGetValue(cleanRelPath, out var found))
+                    {
+                        matchingOrphan = found;
+                    }
+                    else if (index < orphanList.Count)
+                    {
+                        matchingOrphan = orphanList[index];
+                    }
+
+                    if (string.Equals(itemStatus, "trashed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        summary.SuccessfullyTrashed++;
+                        if (matchingOrphan != null)
+                        {
+                            keysToPurge.Add(matchingOrphan.HashKey);
+                        }
+                    }
+                    else if (string.Equals(itemStatus, "not_found", StringComparison.OrdinalIgnoreCase))
+                    {
+                        summary.NotFoundCount++;
+                        if (matchingOrphan != null)
+                        {
+                            keysToPurge.Add(matchingOrphan.HashKey);
+                        }
+                    }
+                    else
+                    {
+                        summary.ErrorCount++;
+                        string err = item.TryGetProperty("message", out var errProp) ? errProp.GetString() ?? "Error al procesar archivo." : "Error al procesar archivo.";
+                        summary.ErrorMessages.Add($"{relPath}: {err}");
+                    }
+
+                    index++;
+                }
+            }
+
+            if (keysToPurge.Count > 0)
+            {
+                lock (_hashLock)
+                {
+                    foreach (var k in keysToPurge)
+                    {
+                        _hashIndex.Remove(k);
+                    }
+                    SaveHashIndex();
+                }
+            }
+
+            return summary;
+        }
+        finally
+        {
+            _uploadSemaphore.Release();
+        }
+    }
+
+    public void DismissOrphans(IEnumerable<DriveOrphanItem> orphans)
+    {
+        if (orphans == null) return;
+        lock (_hashLock)
+        {
+            bool changed = false;
+            foreach (var orphan in orphans)
+            {
+                if (_hashIndex.Remove(orphan.HashKey))
+                {
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                SaveHashIndex();
+            }
+        }
+    }
+
+    public async Task<DuplicateScanResult> DetectDuplicatesAsync(
+        SyncSource? onlySource = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var result = new DuplicateScanResult();
+            var allScannedFiles = new List<LocalFileMetadata>();
+            var unreadableDirectories = new List<string>();
+            var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var scanFilters = new SyncFilterOptions
+            {
+                MaxFileSizeBytes = long.MaxValue
+            };
+
+            foreach (var source in EnumerateSources(onlySource))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var prefix = source.EffectiveDestinationPrefix;
+                foreach (var file in ScanFolder(source.LocalFolderPath, scanFilters, unreadableDirectories))
+                {
+                    if (seenFilePaths.Add(file.FilePath))
+                    {
+                        file.RelativePath = CombineDestination(prefix, file.RelativePath);
+                        file.HashKey = $"{prefix}|{file.FilePath}";
+                        allScannedFiles.Add(file);
+                    }
+                }
+            }
+
+            result.TotalScannedFiles = allScannedFiles.Count;
+
+            // Tier 1: Cluster by FileSize > 0. Filter to buckets with count >= 2. Discard unique sizes and zero-length files.
+            var candidateBuckets = allScannedFiles
+                .Where(f => f.FileSize > 0)
+                .GroupBy(f => f.FileSize)
+                .Where(g => g.Count() >= 2)
+                .ToList();
+
+            result.CandidateSizeBuckets = candidateBuckets.Count;
+
+            if (candidateBuckets.Count == 0)
+            {
+                return result;
+            }
+
+            foreach (var bucket in candidateBuckets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var candidatesWithFullHash = new List<(LocalFileMetadata Meta, string FullHash, DateTime LastModified)>();
+                var uncachedCandidates = new List<(LocalFileMetadata Meta, DateTime LastModified)>();
+
+                // Tier 2: Check _hashIndex for size-colliding candidates via TryGetCachedHash.
+                foreach (var file in bucket)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (TryGetCachedHash(file, out var cachedHash, out var cachedLastModified))
+                    {
+                        candidatesWithFullHash.Add((file, cachedHash!, cachedLastModified));
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var fi = new FileInfo(file.FilePath);
+                            if (!fi.Exists) continue;
+                            uncachedCandidates.Add((file, fi.LastWriteTimeUtc));
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            DiagnosticLogger.LogCrash("DriveSyncService_DetectDuplicates_Stat", ex, $"No se pudo leer metadatos de {file.FilePath}");
+                            continue;
+                        }
+                    }
+                }
+
+                // Tier 3A: For uncached files, compute 16 KB header SHA-256 (read up to 16,384 bytes).
+                var uncachedWithHeaders = new List<(LocalFileMetadata Meta, string HeaderHash, int BytesRead, DateTime LastModified)>();
+
+                foreach (var (file, lastModified) in uncachedCandidates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var headerInfo = ComputeHeaderHash(file.FilePath, cancellationToken);
+                    if (headerInfo.HasValue)
+                    {
+                        uncachedWithHeaders.Add((file, headerInfo.Value.HeaderHash, headerInfo.Value.BytesRead, lastModified));
+                    }
+                }
+
+                if (candidatesWithFullHash.Count > 0)
+                {
+                    foreach (var item in uncachedWithHeaders)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        string? fullHash;
+                        if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
+                        {
+                            fullHash = item.HeaderHash;
+                        }
+                        else
+                        {
+                            fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
+                        }
+
+                        if (!string.IsNullOrEmpty(fullHash))
+                        {
+                            candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
+                        }
+                    }
+                }
+                else
+                {
+                    // All candidates in this size bucket are uncached.
+                    // Tier 3A filtering: Cluster by HeaderHash. Discard clusters with count < 2.
+                    var headerClusters = uncachedWithHeaders
+                        .GroupBy(u => u.HeaderHash, StringComparer.OrdinalIgnoreCase)
+                        .Where(g => g.Count() >= 2)
+                        .ToList();
+
+                    // Tier 3B: For remaining candidates sharing identical size and 16 KB header, compute full SHA-256.
+                    foreach (var headerCluster in headerClusters)
+                    {
+                        foreach (var item in headerCluster)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            string? fullHash;
+                            if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
+                            {
+                                fullHash = item.HeaderHash;
+                            }
+                            else
+                            {
+                                fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
+                            }
+
+                            if (!string.IsNullOrEmpty(fullHash))
+                            {
+                                candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
+                            }
+                        }
+                    }
+                }
+
+                // Group all candidates in this size bucket by identical full SHA-256
+                var fullHashGroups = candidatesWithFullHash
+                    .GroupBy(c => c.FullHash, StringComparer.OrdinalIgnoreCase)
+                    .Where(g => g.Count() >= 2)
+                    .ToList();
+
+                foreach (var hashGroup in fullHashGroups)
+                {
+                    var first = hashGroup.First();
+                    var items = hashGroup
+                        .Select(c => new DuplicateFileItem
+                        {
+                            FilePath = c.Meta.FilePath,
+                            FileName = c.Meta.FileName,
+                            RelativePath = c.Meta.RelativePath,
+                            FileSize = c.Meta.FileSize,
+                            LastModified = c.LastModified,
+                            IsSelected = false
+                        })
+                        .OrderBy(f => f.LastModified)
+                        .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    if (items.Count >= 2)
+                    {
+                        items[0].IsPrimary = true;
+                        for (int i = 1; i < items.Count; i++)
+                        {
+                            items[i].IsPrimary = false;
+                        }
+
+                        result.Groups.Add(new DuplicateFileGroup
+                        {
+                            Hash = hashGroup.Key,
+                            FileSize = first.Meta.FileSize,
+                            Files = items
+                        });
+                    }
+                }
+            }
+
+            return result;
+        }, cancellationToken);
+    }
+
+    private bool TryGetCachedHash(LocalFileMetadata file, out string? cachedHash, out DateTime lastModified)
+    {
+        cachedHash = null;
+        lastModified = default;
+
+        lock (_hashLock)
+        {
+            HashCacheEntry? entry = null;
+            if (!_hashIndex.TryGetValue(file.HashKey, out entry))
+            {
+                _hashIndex.TryGetValue(file.FilePath, out entry);
+            }
+
+            if (entry == null || entry.LastWriteTimeUtcTicks == 0L || string.IsNullOrEmpty(entry.Hash))
+                return false;
+
+            try
+            {
+                var fi = new FileInfo(file.FilePath);
+                if (!fi.Exists || fi.Length != entry.FileSize || file.FileSize != entry.FileSize)
+                    return false;
+
+                if (fi.LastWriteTimeUtc.Ticks != entry.LastWriteTimeUtcTicks)
+                    return false;
+
+                cachedHash = entry.Hash;
+                lastModified = new DateTime(entry.LastWriteTimeUtcTicks, DateTimeKind.Utc);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    private static (string HeaderHash, int BytesRead)? ComputeHeaderHash(string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            byte[] buffer = new byte[16384];
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
+            {
+                int read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                if (read == 0) break;
+                totalRead += read;
+            }
+
+            using var sha256 = SHA256.Create();
+            byte[] hashBytes = sha256.ComputeHash(buffer, 0, totalRead);
+            return (Convert.ToHexString(hashBytes).ToLowerInvariant(), totalRead);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogCrash("DriveSyncService_ComputeHeaderHash", ex, $"No se pudo leer cabecera: {filePath}");
+            return null;
+        }
+    }
+
+    private string? SafeComputeFullSha256(string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ComputeSha256(filePath);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogCrash("DriveSyncService_SafeComputeFullSha256", ex, $"No se pudo calcular hash SHA-256: {filePath}");
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         _activeCts?.Cancel();
         _activeCts?.Dispose();
-        _httpClient.Dispose();
+        if (_ownsClient)
+        {
+            _httpClient.Dispose();
+        }
         _uploadSemaphore.Dispose();
     }
 }
