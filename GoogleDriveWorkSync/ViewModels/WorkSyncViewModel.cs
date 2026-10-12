@@ -76,7 +76,6 @@ public partial class WorkSyncViewModel : ObservableObject
     private string _syncActionTitle = "Sincronizar desincronizados";
 
     public event EventHandler? OutOfSyncPreviewReady;
-    public event EventHandler? SyncHistoryRequested;
     public event EventHandler? CleanupSuggestionsRequested;
     public event EventHandler? DuplicatesInspectorRequested;
 
@@ -475,11 +474,6 @@ public partial class WorkSyncViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    public void OpenSyncHistory()
-    {
-        SyncHistoryRequested?.Invoke(this, EventArgs.Empty);
-    }
 
     [RelayCommand]
     public void OpenCleanupSuggestions()

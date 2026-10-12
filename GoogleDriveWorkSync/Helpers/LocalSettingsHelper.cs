@@ -42,6 +42,9 @@ public static class LocalSettingsHelper
         }
     }
 
+    /// <summary>
+    /// Resets the settings file path to the default location. Used primarily for test scope isolation.
+    /// </summary>
     public static void ResetToDefaultPath()
     {
         lock (LockObj)
@@ -94,16 +97,6 @@ public static class LocalSettingsHelper
         }
     }
 
-    public static void Remove(string key)
-    {
-        lock (LockObj)
-        {
-            if (_cache.Remove(key))
-            {
-                Save();
-            }
-        }
-    }
 
     public static T LoadJson<T>(string key) where T : new()
     {

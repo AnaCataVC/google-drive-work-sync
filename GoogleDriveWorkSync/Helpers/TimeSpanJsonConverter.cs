@@ -21,18 +21,6 @@ public sealed class TimeSpanJsonConverter : JsonConverter<TimeSpan>
                 return parsed;
             }
         }
-        else if (reader.TokenType == JsonTokenType.StartObject)
-        {
-            // Graceful fallback: if it was previously serialized as a complex object,
-            // extract the "Ticks" property and reconstruct the TimeSpan.
-            long ticks = 0;
-            using var doc = JsonDocument.ParseValue(ref reader);
-            if (doc.RootElement.TryGetProperty("Ticks", out var ticksProp))
-            {
-                ticks = ticksProp.GetInt64();
-            }
-            return new TimeSpan(ticks);
-        }
 
         return TimeSpan.Zero;
     }

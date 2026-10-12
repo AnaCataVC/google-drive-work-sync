@@ -46,12 +46,6 @@ public interface IDriveSyncService
     string ComputeSha256(string filePath);
 
     // Upload support for individual or custom batches (used by Claude Sync)
-    Task<bool> UploadSingleFileAsync(
-        string localFilePath,
-        string destinationRelativePath,
-        string mimeType,
-        CancellationToken cancellationToken = default);
-
     Task<(bool Success, string? FileId)> UploadSingleFileWithResultAsync(
         string localFilePath,
         string destinationRelativePath,

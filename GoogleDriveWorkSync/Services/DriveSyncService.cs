@@ -590,15 +590,6 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
-    public async Task<bool> UploadSingleFileAsync(
-        string localFilePath,
-        string destinationRelativePath,
-        string mimeType,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await UploadSingleFileWithResultAsync(localFilePath, destinationRelativePath, mimeType, cancellationToken);
-        return result.Success;
-    }
 
     public async Task<(bool Success, string? FileId)> UploadSingleFileWithResultAsync(
         string localFilePath,
@@ -1431,7 +1422,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync(CancellationToken cancellationToken = default)
+    private async Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansInternalAsync(
+        Func<string, HashCacheEntry, (bool Match, string localPath, string driveRelativePath)> selector,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return await Task.Run(() =>
@@ -1444,42 +1437,20 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
             }
 
-            var activeSources = _settings.Sources
-                .Where(s => !string.IsNullOrWhiteSpace(s.LocalFolderPath))
-                .ToList();
-
             foreach (var (key, entry) in snapshot)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var pipeIndex = key.IndexOf('|');
-                if (pipeIndex < 0)
-                    continue;
-
-                string prefix = key[..pipeIndex];
-                string localPath = key[(pipeIndex + 1)..];
-
-                var matchedSource = activeSources.FirstOrDefault(s =>
-                    string.Equals(s.EffectiveDestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(s.DestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase));
-
-                if (matchedSource == null)
+                var (match, localPath, driveRelativePath) = selector(key, entry);
+                if (!match || string.IsNullOrWhiteSpace(localPath))
                     continue;
 
                 if (!File.Exists(localPath))
                 {
-                    string fileName = Path.GetFileName(localPath);
-                    string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
-                        ? entry.DriveRelativePath
-                        : (localPath.StartsWith(matchedSource.LocalFolderPath, StringComparison.OrdinalIgnoreCase)
-                            ? $"{prefix}/{Path.GetRelativePath(matchedSource.LocalFolderPath, localPath).Replace('\\', '/')}"
-                            : $"{prefix}/{fileName}");
-
                     orphans.Add(new DriveOrphanItem
                     {
                         HashKey = key,
                         LocalFilePath = localPath,
-                        FileName = fileName,
+                        FileName = Path.GetFileName(localPath),
                         DriveRelativePath = driveRelativePath,
                         FileId = entry.FileId,
                         FileSize = entry.FileSize,
@@ -1495,66 +1466,58 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<DriveOrphanItem>> DetectClaudeOrphansAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync(CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return await Task.Run(() =>
+        var activeSources = _settings.Sources
+            .Where(s => !string.IsNullOrWhiteSpace(s.LocalFolderPath))
+            .ToList();
+
+        return DetectOrphansInternalAsync((key, entry) =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var orphans = new List<DriveOrphanItem>();
-            Dictionary<string, HashCacheEntry> snapshot;
-            lock (_hashLock)
-            {
-                snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
-            }
+            var pipeIndex = key.IndexOf('|');
+            if (pipeIndex < 0) return (false, string.Empty, string.Empty);
 
-            string claudePrefix = string.IsNullOrWhiteSpace(_settings.ClaudeDestinationPrefix)
-                ? "claude-md-unversioned"
-                : _settings.ClaudeDestinationPrefix.Trim('/');
+            string prefix = key[..pipeIndex];
+            string localPath = key[(pipeIndex + 1)..];
 
-            foreach (var (key, entry) in snapshot)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+            var matchedSource = activeSources.FirstOrDefault(s =>
+                string.Equals(s.EffectiveDestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.DestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase));
 
-                bool isClaudeEntry = false;
-                string? localPath = entry.LocalFilePath;
+            if (matchedSource == null) return (false, string.Empty, string.Empty);
 
-                if (!string.IsNullOrWhiteSpace(localPath))
-                {
-                    if (key.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ||
-                        (entry.DriveRelativePath?.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ?? false))
-                    {
-                        isClaudeEntry = true;
-                    }
-                }
+            string fileName = Path.GetFileName(localPath);
+            string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
+                ? entry.DriveRelativePath
+                : (localPath.StartsWith(matchedSource.LocalFolderPath, StringComparison.OrdinalIgnoreCase)
+                    ? $"{prefix}/{Path.GetRelativePath(matchedSource.LocalFolderPath, localPath).Replace('\\', '/')}"
+                    : $"{prefix}/{fileName}");
 
-                if (!isClaudeEntry || string.IsNullOrWhiteSpace(localPath))
-                    continue;
+            return (true, localPath, driveRelativePath);
+        }, cancellationToken);
+    }
 
-                if (!File.Exists(localPath))
-                {
-                    string fileName = Path.GetFileName(localPath);
-                    string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
-                        ? entry.DriveRelativePath
-                        : key;
+    public Task<IReadOnlyList<DriveOrphanItem>> DetectClaudeOrphansAsync(CancellationToken cancellationToken = default)
+    {
+        string claudePrefix = string.IsNullOrWhiteSpace(_settings.ClaudeDestinationPrefix)
+            ? "claude-md-unversioned"
+            : _settings.ClaudeDestinationPrefix.Trim('/');
 
-                    orphans.Add(new DriveOrphanItem
-                    {
-                        HashKey = key,
-                        LocalFilePath = localPath,
-                        FileName = fileName,
-                        DriveRelativePath = driveRelativePath,
-                        FileId = entry.FileId,
-                        FileSize = entry.FileSize,
-                        LastWriteTimeUtc = entry.LastWriteTimeUtcTicks > 0
-                            ? new DateTime(entry.LastWriteTimeUtcTicks, DateTimeKind.Utc)
-                            : null,
-                        IsSelected = true
-                    });
-                }
-            }
+        return DetectOrphansInternalAsync((key, entry) =>
+        {
+            string? localPath = entry.LocalFilePath;
+            if (string.IsNullOrWhiteSpace(localPath)) return (false, string.Empty, string.Empty);
 
-            return (IReadOnlyList<DriveOrphanItem>)orphans;
+            bool isClaudeEntry = key.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ||
+                (entry.DriveRelativePath?.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            if (!isClaudeEntry) return (false, string.Empty, string.Empty);
+
+            string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
+                ? entry.DriveRelativePath
+                : key;
+
+            return (true, localPath, driveRelativePath);
         }, cancellationToken);
     }
 
@@ -1890,21 +1853,19 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 }
             }
 
+            string? ResolveCandidateFullHash((LocalFileMetadata Meta, string HeaderHash, int BytesRead, DateTime LastModified) item)
+            {
+                return (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
+                    ? item.HeaderHash
+                    : SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
+            }
+
             if (candidatesWithFullHash.Count > 0)
             {
                 foreach (var item in uncachedWithHeaders)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    string? fullHash;
-                    if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
-                    {
-                        fullHash = item.HeaderHash;
-                    }
-                    else
-                    {
-                        fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
-                    }
-
+                    string? fullHash = ResolveCandidateFullHash(item);
                     if (!string.IsNullOrEmpty(fullHash))
                     {
                         candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
@@ -1926,17 +1887,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                     foreach (var item in headerCluster)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-
-                        string? fullHash;
-                        if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
-                        {
-                            fullHash = item.HeaderHash;
-                        }
-                        else
-                        {
-                            fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
-                        }
-
+                        string? fullHash = ResolveCandidateFullHash(item);
                         if (!string.IsNullOrEmpty(fullHash))
                         {
                             candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
