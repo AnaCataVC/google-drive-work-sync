@@ -55,7 +55,7 @@ public class UpdateService : IUpdateService, IDisposable
             }
         }
         catch { }
-        return "1.5.0";
+        return "1.5.1";
     }
 
     public async Task<UpdateInfo> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
