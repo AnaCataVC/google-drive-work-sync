@@ -578,7 +578,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         try
         {
             await File.WriteAllTextAsync(tempFile, $"Google Drive Work Sync - Prueba de conexión realizada el {DateTime.Now}", cancellationToken);
-            bool success = await UploadSingleFileInternalAsync(tempFile, "_healthcheck/connection-test.txt", "text/plain", webAppUrl, authToken, cancellationToken);
+            var (success, _) = await UploadSingleFileInternalWithResultAsync(tempFile, "_healthcheck/connection-test.txt", "text/plain", webAppUrl, authToken, cancellationToken);
             return success ? "OK" : null;
         }
         finally
@@ -596,11 +596,21 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string mimeType,
         CancellationToken cancellationToken = default)
     {
-        if (!IsConfigured) return false;
-        return await UploadSingleFileInternalAsync(localFilePath, destinationRelativePath, mimeType, _settings.WebAppUrl, null, cancellationToken);
+        var result = await UploadSingleFileWithResultAsync(localFilePath, destinationRelativePath, mimeType, cancellationToken);
+        return result.Success;
     }
 
-    private async Task<bool> UploadSingleFileInternalAsync(
+    public async Task<(bool Success, string? FileId)> UploadSingleFileWithResultAsync(
+        string localFilePath,
+        string destinationRelativePath,
+        string mimeType,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured) return (false, null);
+        return await UploadSingleFileInternalWithResultAsync(localFilePath, destinationRelativePath, mimeType, _settings.WebAppUrl, null, cancellationToken);
+    }
+
+    private async Task<(bool Success, string? FileId)> UploadSingleFileInternalWithResultAsync(
         string localFilePath,
         string destinationRelativePath,
         string mimeType,
@@ -614,7 +624,11 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
         var candidate = new UploadCandidate(localFilePath, fileName, destinationRelativePath, destinationRelativePath, hash, fileInfo);
         var results = await UploadBatchAsync(new List<UploadCandidate> { candidate }, webAppUrl, cancellationToken, mimeType, overrideAuthToken);
-        return results.Count > 0 && results[0].Success;
+        if (results.Count > 0 && results[0].Success)
+        {
+            return (true, results[0].FileId);
+        }
+        return (false, null);
     }
 
     public CandidateSyncStatus EvaluateFileStatus(string filePath, string destinationKey)
@@ -1216,16 +1230,16 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
-    public void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null, string? fileId = null, string? driveRelativePath = null)
+    public void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null, string? fileId = null, string? driveRelativePath = null, string? localFilePath = null)
     {
-        SetKnownHash(hashKey, hash, fileInfo, fileId, driveRelativePath);
+        SetKnownHash(hashKey, hash, fileInfo, fileId, driveRelativePath, localFilePath);
         PersistHashIndex();
     }
 
     /// <summary>
     /// Updates the in-memory index only; bulk callers persist once per batch with <see cref="PersistHashIndex"/>.
     /// </summary>
-    private void SetKnownHash(string hashKey, string hash, FileInfo? fileInfo, string? fileId = null, string? driveRelativePath = null)
+    private void SetKnownHash(string hashKey, string hash, FileInfo? fileInfo, string? fileId = null, string? driveRelativePath = null, string? localFilePath = null)
     {
         lock (_hashLock)
         {
@@ -1235,7 +1249,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 LastWriteTimeUtcTicks = fileInfo != null ? fileInfo.LastWriteTimeUtc.Ticks : 0L,
                 FileSize = fileInfo?.Length ?? 0L,
                 FileId = fileId,
-                DriveRelativePath = driveRelativePath
+                DriveRelativePath = driveRelativePath,
+                LocalFilePath = localFilePath
             };
         }
     }
@@ -1480,6 +1495,69 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DriveOrphanItem>> DetectClaudeOrphansAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var orphans = new List<DriveOrphanItem>();
+            Dictionary<string, HashCacheEntry> snapshot;
+            lock (_hashLock)
+            {
+                snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
+            }
+
+            string claudePrefix = string.IsNullOrWhiteSpace(_settings.ClaudeDestinationPrefix)
+                ? "claude-md-unversioned"
+                : _settings.ClaudeDestinationPrefix.Trim('/');
+
+            foreach (var (key, entry) in snapshot)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                bool isClaudeEntry = false;
+                string? localPath = entry.LocalFilePath;
+
+                if (!string.IsNullOrWhiteSpace(localPath))
+                {
+                    if (key.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ||
+                        (entry.DriveRelativePath?.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ?? false))
+                    {
+                        isClaudeEntry = true;
+                    }
+                }
+
+                if (!isClaudeEntry || string.IsNullOrWhiteSpace(localPath))
+                    continue;
+
+                if (!File.Exists(localPath))
+                {
+                    string fileName = Path.GetFileName(localPath);
+                    string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
+                        ? entry.DriveRelativePath
+                        : key;
+
+                    orphans.Add(new DriveOrphanItem
+                    {
+                        HashKey = key,
+                        LocalFilePath = localPath,
+                        FileName = fileName,
+                        DriveRelativePath = driveRelativePath,
+                        FileId = entry.FileId,
+                        FileSize = entry.FileSize,
+                        LastWriteTimeUtc = entry.LastWriteTimeUtcTicks > 0
+                            ? new DateTime(entry.LastWriteTimeUtcTicks, DateTimeKind.Utc)
+                            : null,
+                        IsSelected = true
+                    });
+                }
+            }
+
+            return (IReadOnlyList<DriveOrphanItem>)orphans;
+        }, cancellationToken);
+    }
+
     public async Task<TrashResultSummary> TrashOrphansAsync(
         IEnumerable<DriveOrphanItem> orphans,
         CancellationToken cancellationToken = default)
@@ -1677,7 +1755,6 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var result = new DuplicateScanResult();
             var allScannedFiles = new List<LocalFileMetadata>();
             var unreadableDirectories = new List<string>();
             var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1702,73 +1779,154 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 }
             }
 
-            result.TotalScannedFiles = allScannedFiles.Count;
+            return DetectDuplicatesInternal(allScannedFiles, cancellationToken);
+        }, cancellationToken);
+    }
 
-            // Tier 1: Cluster by FileSize > 0. Filter to buckets with count >= 2. Discard unique sizes and zero-length files.
-            var candidateBuckets = allScannedFiles
-                .Where(f => f.FileSize > 0)
-                .GroupBy(f => f.FileSize)
-                .Where(g => g.Count() >= 2)
-                .ToList();
+    public async Task<DuplicateScanResult> DetectCandidateDuplicatesAsync(
+        IEnumerable<ClaudeDiscoveryCandidate> candidates,
+        CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-            result.CandidateSizeBuckets = candidateBuckets.Count;
+            var candidateList = candidates?.ToList() ?? new List<ClaudeDiscoveryCandidate>();
+            var allScannedFiles = new List<LocalFileMetadata>();
+            var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (candidateBuckets.Count == 0)
-            {
-                return result;
-            }
-
-            foreach (var bucket in candidateBuckets)
+            foreach (var candidate in candidateList)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var candidatesWithFullHash = new List<(LocalFileMetadata Meta, string FullHash, DateTime LastModified)>();
-                var uncachedCandidates = new List<(LocalFileMetadata Meta, DateTime LastModified)>();
+                if (string.IsNullOrWhiteSpace(candidate.FilePath) || !File.Exists(candidate.FilePath))
+                    continue;
 
-                // Tier 2: Check _hashIndex for size-colliding candidates via TryGetCachedHash.
-                foreach (var file in bucket)
+                if (seenFilePaths.Add(candidate.FilePath))
+                {
+                    allScannedFiles.Add(new LocalFileMetadata
+                    {
+                        FilePath = candidate.FilePath,
+                        FileName = Path.GetFileName(candidate.FilePath),
+                        RelativePath = candidate.RelativePath,
+                        FileSize = candidate.FileSizeBytes,
+                        HashKey = candidate.FilePath
+                    });
+                }
+            }
+
+            return DetectDuplicatesInternal(allScannedFiles, cancellationToken);
+        }, cancellationToken);
+    }
+
+    private DuplicateScanResult DetectDuplicatesInternal(
+        List<LocalFileMetadata> allScannedFiles,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var result = new DuplicateScanResult
+        {
+            TotalScannedFiles = allScannedFiles.Count
+        };
+
+        // Tier 1: Cluster by FileSize > 0. Filter to buckets with count >= 2. Discard unique sizes and zero-length files.
+        var candidateBuckets = allScannedFiles
+            .Where(f => f.FileSize > 0)
+            .GroupBy(f => f.FileSize)
+            .Where(g => g.Count() >= 2)
+            .ToList();
+
+        result.CandidateSizeBuckets = candidateBuckets.Count;
+
+        if (candidateBuckets.Count == 0)
+        {
+            return result;
+        }
+
+        foreach (var bucket in candidateBuckets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var candidatesWithFullHash = new List<(LocalFileMetadata Meta, string FullHash, DateTime LastModified)>();
+            var uncachedCandidates = new List<(LocalFileMetadata Meta, DateTime LastModified)>();
+
+            // Tier 2: Check _hashIndex for size-colliding candidates via TryGetCachedHash.
+            foreach (var file in bucket)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (TryGetCachedHash(file, out var cachedHash, out var cachedLastModified))
+                {
+                    candidatesWithFullHash.Add((file, cachedHash!, cachedLastModified));
+                }
+                else
+                {
+                    try
+                    {
+                        var fi = new FileInfo(file.FilePath);
+                        if (!fi.Exists) continue;
+                        uncachedCandidates.Add((file, fi.LastWriteTimeUtc));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        DiagnosticLogger.LogCrash("DriveSyncService_DetectDuplicates_Stat", ex, $"No se pudo leer metadatos de {file.FilePath}");
+                        continue;
+                    }
+                }
+            }
+
+            // Tier 3A: For uncached files, compute 16 KB header SHA-256 (read up to 16,384 bytes).
+            var uncachedWithHeaders = new List<(LocalFileMetadata Meta, string HeaderHash, int BytesRead, DateTime LastModified)>();
+
+            foreach (var (file, lastModified) in uncachedCandidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var headerInfo = ComputeHeaderHash(file.FilePath, cancellationToken);
+                if (headerInfo.HasValue)
+                {
+                    uncachedWithHeaders.Add((file, headerInfo.Value.HeaderHash, headerInfo.Value.BytesRead, lastModified));
+                }
+            }
+
+            if (candidatesWithFullHash.Count > 0)
+            {
+                foreach (var item in uncachedWithHeaders)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-
-                    if (TryGetCachedHash(file, out var cachedHash, out var cachedLastModified))
+                    string? fullHash;
+                    if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
                     {
-                        candidatesWithFullHash.Add((file, cachedHash!, cachedLastModified));
+                        fullHash = item.HeaderHash;
                     }
                     else
                     {
-                        try
-                        {
-                            var fi = new FileInfo(file.FilePath);
-                            if (!fi.Exists) continue;
-                            uncachedCandidates.Add((file, fi.LastWriteTimeUtc));
-                        }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
-                        {
-                            DiagnosticLogger.LogCrash("DriveSyncService_DetectDuplicates_Stat", ex, $"No se pudo leer metadatos de {file.FilePath}");
-                            continue;
-                        }
+                        fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
                     }
-                }
 
-                // Tier 3A: For uncached files, compute 16 KB header SHA-256 (read up to 16,384 bytes).
-                var uncachedWithHeaders = new List<(LocalFileMetadata Meta, string HeaderHash, int BytesRead, DateTime LastModified)>();
-
-                foreach (var (file, lastModified) in uncachedCandidates)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var headerInfo = ComputeHeaderHash(file.FilePath, cancellationToken);
-                    if (headerInfo.HasValue)
+                    if (!string.IsNullOrEmpty(fullHash))
                     {
-                        uncachedWithHeaders.Add((file, headerInfo.Value.HeaderHash, headerInfo.Value.BytesRead, lastModified));
+                        candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
                     }
                 }
+            }
+            else
+            {
+                // All candidates in this size bucket are uncached.
+                // Tier 3A filtering: Cluster by HeaderHash. Discard clusters with count < 2.
+                var headerClusters = uncachedWithHeaders
+                    .GroupBy(u => u.HeaderHash, StringComparer.OrdinalIgnoreCase)
+                    .Where(g => g.Count() >= 2)
+                    .ToList();
 
-                if (candidatesWithFullHash.Count > 0)
+                // Tier 3B: For remaining candidates sharing identical size and 16 KB header, compute full SHA-256.
+                foreach (var headerCluster in headerClusters)
                 {
-                    foreach (var item in uncachedWithHeaders)
+                    foreach (var item in headerCluster)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+
                         string? fullHash;
                         if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
                         {
@@ -1785,83 +1943,161 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         }
                     }
                 }
-                else
-                {
-                    // All candidates in this size bucket are uncached.
-                    // Tier 3A filtering: Cluster by HeaderHash. Discard clusters with count < 2.
-                    var headerClusters = uncachedWithHeaders
-                        .GroupBy(u => u.HeaderHash, StringComparer.OrdinalIgnoreCase)
-                        .Where(g => g.Count() >= 2)
-                        .ToList();
+            }
 
-                    // Tier 3B: For remaining candidates sharing identical size and 16 KB header, compute full SHA-256.
-                    foreach (var headerCluster in headerClusters)
+            // Group all candidates in this size bucket by identical full SHA-256
+            var fullHashGroups = candidatesWithFullHash
+                .GroupBy(c => c.FullHash, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() >= 2)
+                .ToList();
+
+            foreach (var hashGroup in fullHashGroups)
+            {
+                var first = hashGroup.First();
+                var items = hashGroup
+                    .Select(c => new DuplicateFileItem
                     {
-                        foreach (var item in headerCluster)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            string? fullHash;
-                            if (item.BytesRead == item.Meta.FileSize || item.Meta.FileSize <= 16384)
-                            {
-                                fullHash = item.HeaderHash;
-                            }
-                            else
-                            {
-                                fullHash = SafeComputeFullSha256(item.Meta.FilePath, cancellationToken);
-                            }
-
-                            if (!string.IsNullOrEmpty(fullHash))
-                            {
-                                candidatesWithFullHash.Add((item.Meta, fullHash, item.LastModified));
-                            }
-                        }
-                    }
-                }
-
-                // Group all candidates in this size bucket by identical full SHA-256
-                var fullHashGroups = candidatesWithFullHash
-                    .GroupBy(c => c.FullHash, StringComparer.OrdinalIgnoreCase)
-                    .Where(g => g.Count() >= 2)
+                        FilePath = c.Meta.FilePath,
+                        FileName = c.Meta.FileName,
+                        RelativePath = c.Meta.RelativePath,
+                        FileSize = c.Meta.FileSize,
+                        LastModified = c.LastModified
+                    })
+                    .OrderBy(f => f.LastModified)
+                    .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                foreach (var hashGroup in fullHashGroups)
+                if (items.Count >= 2)
                 {
-                    var first = hashGroup.First();
-                    var items = hashGroup
-                        .Select(c => new DuplicateFileItem
-                        {
-                            FilePath = c.Meta.FilePath,
-                            FileName = c.Meta.FileName,
-                            RelativePath = c.Meta.RelativePath,
-                            FileSize = c.Meta.FileSize,
-                            LastModified = c.LastModified,
-                            IsSelected = false
-                        })
-                        .OrderBy(f => f.LastModified)
-                        .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
+                    // Mark the first file as primary (protected from deletion), and pre-select redundant copies
+                    items[0].IsPrimary = true;
+                    items[0].IsSelected = false;
 
-                    if (items.Count >= 2)
+                    for (int i = 1; i < items.Count; i++)
                     {
-                        items[0].IsPrimary = true;
-                        for (int i = 1; i < items.Count; i++)
-                        {
-                            items[i].IsPrimary = false;
-                        }
+                        items[i].IsPrimary = false;
+                        items[i].IsSelected = true;
+                    }
 
-                        result.Groups.Add(new DuplicateFileGroup
+                    result.Groups.Add(new DuplicateFileGroup
+                    {
+                        Hash = hashGroup.Key,
+                        FileSize = first.Meta.FileSize,
+                        Files = items
+                    });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<DuplicateCleanupResultSummary> DeleteDuplicateFilesAsync(
+        IEnumerable<DuplicateFileItem> filesToPurge,
+        bool trashFromDrive = true,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var summary = new DuplicateCleanupResultSummary();
+        var filesList = filesToPurge?.Where(f => !f.IsPrimary).ToList() ?? new List<DuplicateFileItem>();
+
+        if (filesList.Count == 0)
+        {
+            return summary;
+        }
+
+        // 1. If trashFromDrive is requested, identify matching index entries and soft-trash them in Google Drive
+        if (trashFromDrive && IsConfigured)
+        {
+            var orphansToTrash = new List<DriveOrphanItem>();
+            Dictionary<string, HashCacheEntry> snapshot;
+            lock (_hashLock)
+            {
+                snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
+            }
+
+            foreach (var file in filesList)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                foreach (var (key, entry) in snapshot)
+                {
+                    bool match = false;
+                    if (!string.IsNullOrWhiteSpace(entry.LocalFilePath) &&
+                        string.Equals(entry.LocalFilePath, file.FilePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = true;
+                    }
+                    else if (key.EndsWith("|" + file.FilePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = true;
+                    }
+
+                    if (match)
+                    {
+                        orphansToTrash.Add(new DriveOrphanItem
                         {
-                            Hash = hashGroup.Key,
-                            FileSize = first.Meta.FileSize,
-                            Files = items
+                            HashKey = key,
+                            LocalFilePath = file.FilePath,
+                            FileName = file.FileName,
+                            DriveRelativePath = entry.DriveRelativePath ?? key,
+                            FileId = entry.FileId,
+                            FileSize = entry.FileSize > 0 ? entry.FileSize : file.FileSize,
+                            IsSelected = true
                         });
                     }
                 }
             }
 
-            return result;
-        }, cancellationToken);
+            if (orphansToTrash.Count > 0)
+            {
+                var trashResult = await TrashOrphansAsync(orphansToTrash, cancellationToken);
+                summary.DriveFilesTrashed = trashResult.SuccessfullyTrashed;
+                if (trashResult.ErrorMessages.Count > 0)
+                {
+                    summary.ErrorMessages.AddRange(trashResult.ErrorMessages);
+                }
+            }
+        }
+
+        // 2. Safely send each selected file to the Windows Recycle Bin
+        foreach (var file in filesList)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (WindowsRecycleBinHelper.SendToRecycleBin(file.FilePath, out var win32Error))
+            {
+                summary.LocalFilesRecycled++;
+                summary.BytesFreed += file.FileSize;
+
+                // Also purge any remaining local hash entry if not already purged
+                lock (_hashLock)
+                {
+                    var keysToRemove = _hashIndex
+                        .Where(kvp => (!string.IsNullOrWhiteSpace(kvp.Value.LocalFilePath) &&
+                                       string.Equals(kvp.Value.LocalFilePath, file.FilePath, StringComparison.OrdinalIgnoreCase)) ||
+                                      kvp.Key.EndsWith("|" + file.FilePath, StringComparison.OrdinalIgnoreCase))
+                        .Select(kvp => kvp.Key)
+                        .ToList();
+
+                    if (keysToRemove.Count > 0)
+                    {
+                        foreach (var k in keysToRemove)
+                        {
+                            _hashIndex.Remove(k);
+                        }
+                        PersistHashIndex();
+                    }
+                }
+            }
+            else
+            {
+                summary.ErrorMessages.Add($"No se pudo mover a la papelera: {file.FileName} ({win32Error})");
+            }
+        }
+
+        return summary;
     }
 
     private bool TryGetCachedHash(LocalFileMetadata file, out string? cachedHash, out DateTime lastModified)

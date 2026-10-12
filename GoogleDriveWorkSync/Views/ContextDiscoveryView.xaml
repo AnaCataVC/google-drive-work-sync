@@ -84,6 +84,19 @@
                                                 <FontIcon Glyph="&#xE72C;" />
                                             </MenuFlyoutItem.Icon>
                                         </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Sugerencias de limpieza en Drive (Archivos huérfanos)"
+                                                        Command="{x:Bind ViewModel.OpenCleanupSuggestionsCommand}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE74D;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem Text="Inspector de archivos duplicados"
+                                                        Command="{x:Bind ViewModel.OpenDuplicatesInspectorCommand}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE8B9;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>

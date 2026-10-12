@@ -457,6 +457,18 @@ public sealed partial class WorkSyncView : Page
                 foreach (var file in group.Files)
                 {
                     var fileRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(8, 2, 0, 2) };
+
+                    var cb = new CheckBox
+                    {
+                        IsChecked = file.IsSelected,
+                        IsEnabled = !file.IsPrimary,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 4, 0)
+                    };
+                    cb.Checked += (s, e) => file.IsSelected = true;
+                    cb.Unchecked += (s, e) => file.IsSelected = false;
+                    fileRow.Children.Add(cb);
+
                     if (file.IsPrimary)
                     {
                         var primaryBadge = new Border
@@ -504,12 +516,57 @@ public sealed partial class WorkSyncView : Page
             {
                 Title = $"Inspector de duplicados ({scanResult.TotalDuplicateGroups} grupos, {scanResult.FormattedTotalWastedBytes} recuperables)",
                 Content = scroll,
+                PrimaryButtonText = "Mover seleccionados a papelera",
                 CloseButtonText = "Cerrar",
-                DefaultButton = ContentDialogButton.Close,
+                DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = xamlRoot
             };
 
-            await dialog.ShowAsync();
+            var dialogResult = await dialog.ShowAsync();
+            if (dialogResult == ContentDialogResult.Primary)
+            {
+                var selectedFiles = scanResult.Groups
+                    .SelectMany(g => g.Files)
+                    .Where(f => !f.IsPrimary && f.IsSelected)
+                    .ToList();
+
+                if (selectedFiles.Count > 0)
+                {
+                    var confirmDialog = new ContentDialog
+                    {
+                        Title = $"¿Mover {selectedFiles.Count} copias a la papelera?",
+                        Content = new TextBlock
+                        {
+                            Text = "Las copias seleccionadas se moverán a la Papelera de Reciclaje de Windows. Si ya estaban en Google Drive, también se moverán a la papelera de Drive con 30 días de recuperación.",
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        PrimaryButtonText = "Sí, mover a papelera",
+                        CloseButtonText = "Cancelar",
+                        DefaultButton = ContentDialogButton.Primary,
+                        XamlRoot = xamlRoot
+                    };
+
+                    if (await confirmDialog.ShowAsync() == ContentDialogResult.Primary)
+                    {
+                        var summary = await ViewModel.DeleteDuplicatesAsync(selectedFiles, trashFromDrive: true);
+                        var outcomeDialog = new ContentDialog
+                        {
+                            Title = summary.Success ? "Limpieza de duplicados completada" : "Resultado con advertencias",
+                            Content = new TextBlock
+                            {
+                                Text = $"Se movieron {summary.LocalFilesRecycled} archivos a la Papelera de Reciclaje de Windows ({summary.FormattedBytesFreed} liberados)." +
+                                       (summary.DriveFilesTrashed > 0 ? $"\nSe enviaron {summary.DriveFilesTrashed} archivos a la papelera de Google Drive." : "") +
+                                       (summary.ErrorMessages.Count > 0 ? $"\nAdvertencias: {string.Join(", ", summary.ErrorMessages)}" : ""),
+                                TextWrapping = TextWrapping.Wrap
+                            },
+                            CloseButtonText = "Aceptar",
+                            DefaultButton = ContentDialogButton.Close,
+                            XamlRoot = xamlRoot
+                        };
+                        await outcomeDialog.ShowAsync();
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {

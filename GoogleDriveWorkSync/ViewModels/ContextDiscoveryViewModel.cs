@@ -87,6 +87,8 @@ public partial class ContextDiscoveryViewModel : ObservableObject
     private bool _isDriveSyncIndeterminate;
 
     public event EventHandler? OutOfSyncPreviewReady;
+    public event EventHandler? CleanupSuggestionsRequested;
+    public event EventHandler? DuplicatesInspectorRequested;
 
     public bool IsDriveConfigured => _driveSyncService.IsConfigured;
 
@@ -240,11 +242,11 @@ public partial class ContextDiscoveryViewModel : ObservableObject
                 fi.Refresh();
                 string hash = _driveSyncService.ComputeSha256(candidate.FilePath);
 
-                bool success = await _driveSyncService.UploadSingleFileAsync(candidate.FilePath, destinationPath, mimeType, token);
+                var (success, fileId) = await _driveSyncService.UploadSingleFileWithResultAsync(candidate.FilePath, destinationPath, mimeType, token);
                 if (success)
                 {
                     uploaded++;
-                    _driveSyncService.SaveKnownHash(destinationPath, hash, fi);
+                    _driveSyncService.SaveKnownHash(destinationPath, hash, fi, fileId, destinationPath, candidate.FilePath);
                     candidate.SyncStatus = CandidateSyncStatus.UpToDate;
                 }
                 else
@@ -395,4 +397,37 @@ public partial class ContextDiscoveryViewModel : ObservableObject
             }
         }
     }
+
+    [RelayCommand]
+    public void OpenCleanupSuggestions()
+    {
+        CleanupSuggestionsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    [RelayCommand]
+    public void OpenDuplicatesInspector()
+    {
+        DuplicatesInspectorRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    public Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync()
+        => _driveSyncService.DetectClaudeOrphansAsync();
+
+    public Task<TrashResultSummary> TrashOrphansAsync(IEnumerable<DriveOrphanItem> orphans)
+        => _driveSyncService.TrashOrphansAsync(orphans);
+
+    public void DismissOrphans(IEnumerable<DriveOrphanItem> orphans)
+        => _driveSyncService.DismissOrphans(orphans);
+
+    public async Task<DuplicateScanResult> DetectDuplicatesAsync()
+    {
+        if (Candidates.Count == 0 && !IsScanning)
+        {
+            await DiscoverAsync();
+        }
+        return await _driveSyncService.DetectCandidateDuplicatesAsync(Candidates);
+    }
+
+    public Task<DuplicateCleanupResultSummary> DeleteDuplicatesAsync(IEnumerable<DuplicateFileItem> files, bool trashFromDrive)
+        => _driveSyncService.DeleteDuplicateFilesAsync(files, trashFromDrive);
 }

@@ -40,21 +40,23 @@ Diseñada con Fluent Design nativo de Windows 11, material translúcido Mica, ej
 - **Seguimiento Granular:** Clasifica y decrementa por separado los archivos Nuevos versus los Modificados en tiempo real al finalizar cada elemento.
 - **Poda en Memoria de Colecciones:** Implementa poda en bucle invertido (*reverse-loop*) sobre `ObservableCollection<OutOfSyncFile>`, eliminando archivos sincronizados directamente de la vista sin bloqueos en el hilo de UI ni errores de desplazamiento de índices.
 
-### 3. Sugerencias de Eliminación y Reconciliación de Huérfanos en Drive
-- **Detección No Destructiva de Huérfanos:** Compara `sync_hashes.json` contra el disco local. Los archivos presentes en el índice que hayan sido eliminados localmente se identifican como candidatos a depuración.
-- **Envío a Papelera en O(1):** Resuelve referencias remotas en tiempo constante aprovechando el `FileId` de Google Drive preservado en cada `HashCacheEntry`.
+### 3. Sugerencias de Eliminación y Reconciliación de Huérfanos en Drive (Carpetas + Claude)
+- **Detección No Destructiva de Huérfanos:** Compara `sync_hashes.json` contra el disco local tanto para carpetas de trabajo como para archivos de contexto IA (Claude). Los archivos presentes en el índice que hayan sido eliminados localmente se identifican como candidatos a depuración.
+- **Envío a Papelera en O(1):** Resuelve referencias remotas en tiempo constante aprovechando el `FileId` de Google Drive y `LocalFilePath` preservados en cada `HashCacheEntry`.
 - **Margen de Seguridad con Papelera Suave:** Envía la acción `action: "trash"` a Google Apps Script ejecutando `setTrashed(true)`. Los archivos pasan a la Papelera de Google Drive con un período de recuperación de 30 días en lugar de borrarse permanentemente.
 - **Confirmación Fail-Closed:** Cero eliminaciones automáticas en Drive; cada operación requiere revisión y selección explícita del usuario. Los elementos enviados a papelera se purgan inmediatamente de `sync_hashes.json`.
 
-### 4. Detección Rápida de Duplicados en Tres Capas
+### 4. Detección Accionable de Duplicados en Tres Capas (Carpetas + Claude)
 - **Agrupamiento por Tamaño sin I/O de Disco (Capa 1):** Agrupa archivos locales por tamaño (`GroupBy(f => f.FileSize)` con `FileSize > 0`). Descarta de inmediato los archivos con tamaños únicos sin realizar ninguna lectura en disco.
 - **Reutilización de Caché de Hashes (Capa 2):** Consulta `sync_hashes.json` para candidatos con tamaños coincidentes vía `TryGetCachedHash`, reutilizando hashes SHA-256 en memoria sin leer los archivos físicos.
 - **Filtro de Cabecera en Microsegundos (Capa 3A):** Lee y calcula el hash de los primeros 16 KB de archivos no cacheados, descartando el 99% de colisiones accidentales de tamaño en microsegundos.
 - **SHA-256 de Flujo Completo (Capa 3B):** Ejecuta hashing criptográfico completo únicamente en pares candidatos que comparten tamaño idéntico y cabecera de 16 KB coincidente.
+- **Limpieza Accionable con Papelera Segura de Windows:** Permite al usuario seleccionar copias redundantes protegiendo estrictamente la copia canónica original. Las copias seleccionadas se mueven de manera segura a la **Papelera de Reciclaje de Windows** mediante Win32 Shell API (`SHFileOperation` con `FOF_ALLOWUNDO`) y opcionalmente a la Papelera de Google Drive en la misma operación.
 - **Cuantificación de Espacio y Atribución Primaria:** Cuantifica el espacio redundante (`(Count - 1) * FileSize`) e identifica el archivo original canónico mediante la fecha de modificación más antigua (`LastModified`).
 
 ### 5. Detección y Respaldo de Contexto IA (Claude)
 - **Exploración Jerárquica BFS:** Realiza un recorrido en anchura (niveles 1 al 6) por directorios de trabajo, identificando directrices de proyecto (`CLAUDE.md`), habilidades de agentes, prompts de subagentes, hooks y mods (`~/.claude/mods/`).
+- **Paridad Total en Duplicados y Huérfanos:** Examina los candidatos descubiertos de Claude con el motor de duplicados en 3 capas y reconcilia respaldos de contexto huérfanos contra el sistema de archivos local.
 - **Exclusión de Repositorios Git y Worktrees:** Detecta tanto raíces de repositorios estándar (carpeta `.git`) como worktrees vinculados (archivo `.git`), omitiéndolos para evitar clasificar documentación versionada como archivos sin seguimiento.
 - **Filtro de Secretos en Tres Capas:** Defensa en profundidad con nombres en lista negra (`.env`, `credentials.json`, `id_rsa`), escaneo por expresiones regulares en los primeros 64 KB en busca de tokens PAT/SSH/OAuth, y saneamiento estricto de configuraciones MCP.
 - **Detección de Seguimiento en Git:** Consultas en lotes de `git ls-files` para distinguir documentación versionada de notas y scratchpads locales.

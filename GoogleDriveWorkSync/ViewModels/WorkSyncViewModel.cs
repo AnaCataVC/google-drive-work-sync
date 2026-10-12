@@ -504,4 +504,7 @@ public partial class WorkSyncViewModel : ObservableObject
 
     public Task<DuplicateScanResult> DetectDuplicatesAsync()
         => _driveSyncService.DetectDuplicatesAsync();
+
+    public Task<DuplicateCleanupResultSummary> DeleteDuplicatesAsync(System.Collections.Generic.IEnumerable<DuplicateFileItem> files, bool trashFromDrive)
+        => _driveSyncService.DeleteDuplicateFilesAsync(files, trashFromDrive);
 }

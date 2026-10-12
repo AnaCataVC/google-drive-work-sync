@@ -40,21 +40,23 @@ Crafted around native Windows 11 Fluent Design with Mica backdrop materials, sys
 - **Granular Classification:** Separately tracks and live-decrements New files vs. Modified files as each item finishes.
 - **In-Memory Observable Pruning:** Employs reverse-loop pruning on `ObservableCollection<OutOfSyncFile>` to smoothly remove synchronized items from the UI view in-place without UI thread locks or index shifting errors.
 
-### 3. Google Drive Deletion Suggestions & Orphan Reconciliation
-- **Non-Destructive Orphan Detection:** Cross-references `sync_hashes.json` against local disk. Files that existed in the sync index but have since been deleted locally are surfaced as deletion candidates.
-- **O(1) Direct Trashing:** Resolves remote file references in constant time via the preserved Google Drive `FileId` inside `HashCacheEntry`.
+### 3. Google Drive Deletion Suggestions & Orphan Reconciliation (Work Folders + Claude)
+- **Non-Destructive Orphan Detection:** Cross-references `sync_hashes.json` against local disk for both monitored work sources and Claude AI context files. Files that existed in the sync index but have since been deleted locally are surfaced as deletion candidates.
+- **O(1) Direct Trashing:** Resolves remote file references in constant time via preserved Google Drive `FileId` and `LocalFilePath` inside `HashCacheEntry`.
 - **Soft-Trash Safety Buffer:** Dispatches `action: "trash"` to Google Apps Script, executing `setTrashed(true)`. Files are moved to Google Drive Trash with a 30-day recovery buffer rather than permanently deleted.
 - **Fail-Closed Confirmation:** Zero automatic remote deletions; every deletion requires explicit human review and selection. Successfully trashed items are purged from `sync_hashes.json`.
 
-### 4. Fast Multi-Tier Duplicate Detection
+### 4. Actionable Multi-Tier Duplicate Detection (Work Folders + Claude)
 - **Zero Disk I/O Size Clustering (Tier 1):** Groups local files by size (`GroupBy(f => f.FileSize)` where `FileSize > 0`). Discards all files with unique byte counts instantly with zero disk reads.
 - **Hash Cache Reuse (Tier 2):** Checks `sync_hashes.json` for candidates in colliding size buckets via `TryGetCachedHash`, reusing pre-calculated SHA-256 signatures in memory without reading physical files.
 - **Microsecond Header Filter (Tier 3A):** Reads and hashes only the first 16 KB of uncached files, eliminating 99% of accidental size collisions in microseconds.
 - **Full Stream SHA-256 (Tier 3B):** Executes full cryptographic hashing only on candidate pairs that share both identical file sizes and matching 16 KB headers.
+- **Actionable Cleanup with Safe Windows Recycling:** Empowers users to select redundant copies while strictly safeguarding the primary canonical copy. Selected redundant files are safely moved to the **Windows Recycle Bin** via Win32 Shell API (`SHFileOperation` with `FOF_ALLOWUNDO`) and optionally trashed from Google Drive in the same flow.
 - **Space Quantification & Primary Attribution:** Quantifies wasted space (`(Count - 1) * FileSize`) and identifies the canonical master copy by earliest `LastModified` timestamp.
 
 ### 5. Claude AI Context Discovery & Backup
 - **Multi-Level Workspace BFS:** Performs breadth-first traversal (levels 1–6) across developer directories, identifying Claude project instructions (`CLAUDE.md`), agent skills, subagent prompts, hooks, and mods (`~/.claude/mods/`).
+- **Full Parity for Duplicates & Orphans:** Scans discovered Claude candidates against the 3-tier duplicate engine and reconciles orphaned remote context backups against local filesystem state.
 - **Git Root & Worktree Exclusion:** Traversal detects both standard Git repository roots (`.git` directory) and linked worktrees (`.git` pointer file), skipping them to prevent tracked documentation from being treated as untracked files.
 - **Three-Tiered Secret Filter:** Employs a fail-closed defense: blacklisted secret filenames (`.env`, `credentials.json`, `id_rsa`), regex scans across the first 64 KB for PAT/SSH/OAuth tokens, and recursive sanitization of MCP configuration files before sync staging.
 - **Git Tracking Awareness:** Batched `git ls-files` queries distinguish versioned documentation from uncommitted local scratchpads.

@@ -42,7 +42,7 @@ public interface IDriveSyncService
 
     // Helpers for checking if candidate or individual file is out of sync
     CandidateSyncStatus EvaluateFileStatus(string filePath, string destinationKey);
-    void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null, string? fileId = null, string? driveRelativePath = null);
+    void SaveKnownHash(string hashKey, string hash, FileInfo? fileInfo = null, string? fileId = null, string? driveRelativePath = null, string? localFilePath = null);
     string ComputeSha256(string filePath);
 
     // Upload support for individual or custom batches (used by Claude Sync)
@@ -52,8 +52,15 @@ public interface IDriveSyncService
         string mimeType,
         CancellationToken cancellationToken = default);
 
+    Task<(bool Success, string? FileId)> UploadSingleFileWithResultAsync(
+        string localFilePath,
+        string destinationRelativePath,
+        string mimeType,
+        CancellationToken cancellationToken = default);
+
     // Google Drive deletion suggestions & orphan reconciliation
     Task<IReadOnlyList<DriveOrphanItem>> DetectOrphansAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DriveOrphanItem>> DetectClaudeOrphansAsync(CancellationToken cancellationToken = default);
 
     Task<TrashResultSummary> TrashOrphansAsync(
         IEnumerable<DriveOrphanItem> orphans,
@@ -64,5 +71,15 @@ public interface IDriveSyncService
     // Duplicate file detection (3-Tier pipeline)
     Task<DuplicateScanResult> DetectDuplicatesAsync(
         SyncSource? onlySource = null,
+        CancellationToken cancellationToken = default);
+
+    Task<DuplicateScanResult> DetectCandidateDuplicatesAsync(
+        IEnumerable<ClaudeDiscoveryCandidate> candidates,
+        CancellationToken cancellationToken = default);
+
+    // Actionable duplicate file cleanup (Windows Recycle Bin + Google Drive Trash)
+    Task<DuplicateCleanupResultSummary> DeleteDuplicateFilesAsync(
+        IEnumerable<DuplicateFileItem> filesToPurge,
+        bool trashFromDrive = true,
         CancellationToken cancellationToken = default);
 }

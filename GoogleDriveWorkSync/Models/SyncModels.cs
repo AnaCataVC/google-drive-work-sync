@@ -156,6 +156,7 @@ public class HashCacheEntry
     public long FileSize { get; set; }
     public string? FileId { get; set; }
     public string? DriveRelativePath { get; set; }
+    public string? LocalFilePath { get; set; }
 }
 
 /// <summary>
@@ -306,4 +307,18 @@ public class DuplicateScanResult
     public long TotalWastedBytes => Groups.Sum(g => g.WastedBytes);
     public string FormattedTotalWastedBytes => OutOfSyncFile.FormatBytes(TotalWastedBytes);
 }
+
+/// <summary>
+/// Summary of duplicate cleanup execution (local Windows Recycle Bin + optional Google Drive trash).
+/// </summary>
+public class DuplicateCleanupResultSummary
+{
+    public int LocalFilesRecycled { get; set; }
+    public int DriveFilesTrashed { get; set; }
+    public long BytesFreed { get; set; }
+    public string FormattedBytesFreed => OutOfSyncFile.FormatBytes(BytesFreed);
+    public List<string> ErrorMessages { get; set; } = new();
+    public bool Success => ErrorMessages.Count == 0;
+}
+
 
