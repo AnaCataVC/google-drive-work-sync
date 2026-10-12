@@ -107,7 +107,7 @@ public partial class SettingsViewModel : ObservableObject
 
     // Update
     [ObservableProperty]
-    private string _currentVersion = "1.2.2";
+    private string _currentVersion = "1.5.0";
 
     [ObservableProperty]
     private string _updateStatusText = string.Empty;

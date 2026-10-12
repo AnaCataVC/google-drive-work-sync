@@ -12,7 +12,7 @@ public static class DiagnosticLogger
     {
         try
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartSync", "Logs");
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GoogleDriveWorkSync", "Logs");
             Directory.CreateDirectory(logDir);
             File.AppendAllText(Path.Combine(logDir, "startup_diagnostic.log"), $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {step}\n");
         }
@@ -23,7 +23,7 @@ public static class DiagnosticLogger
     {
         try
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SmartSync", "Logs");
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GoogleDriveWorkSync", "Logs");
             Directory.CreateDirectory(logDir);
             var content = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] CRASH in {source}: {message}\nException: {ex}\nStackTrace: {ex?.StackTrace}\nInnerException: {ex?.InnerException}\n\n";
             File.AppendAllText(Path.Combine(logDir, "startup_diagnostic.log"), content);
