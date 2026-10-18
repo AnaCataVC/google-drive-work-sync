@@ -94,6 +94,7 @@ public partial class App : Application
 
             var scheduleService = GetService<ISyncScheduleService>();
             var driveSyncService = GetService<IDriveSyncService>();
+            var claudeDiscoveryService = GetService<IClaudeDiscoveryService>();
 
             scheduleService.ScheduledSyncTriggered += (s, e) =>
             {
@@ -103,6 +104,14 @@ public partial class App : Application
                     {
                         LogTrace("Background scheduled auto-sync triggered");
                         await driveSyncService.RunSyncAsync(forceFullSync: false);
+
+                        if (scheduleService.Settings.SyncClaudeContextAlso && driveSyncService.IsConfigured)
+                        {
+                            LogTrace("Background scheduled Claude context sync triggered");
+                            var contextVm = GetService<ContextDiscoveryViewModel>();
+                            await contextVm.DiscoverAsync();
+                            await contextVm.SyncToDriveAsync();
+                        }
                     }
                     catch (Exception ex)
                     {

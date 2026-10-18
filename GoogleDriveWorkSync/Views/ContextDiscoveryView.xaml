@@ -11,74 +11,186 @@
     mc:Ignorable="d"
     Background="Transparent">
 
-    <ListView ItemsSource="{x:Bind ViewModel.GroupedCandidates, Mode=OneWay}" SelectionMode="None" Padding="36,24,36,36">
-        <ListView.Header>
-            <StackPanel Spacing="16" Margin="0,0,0,16">
-                <!-- Header -->
-                <StackPanel Spacing="6">
-                    <TextBlock Text="Respaldo de Contexto IA (Claude)" Style="{StaticResource TitleTextBlockStyle}" />
-                    <TextBlock Text="Localiza CLAUDE.md, references, skills, agentes, hooks y mods con filtrado multi-capa de secretos y detección de Git."
-                               Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
+    <Grid Padding="36,24,36,36">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-                <!-- Configuration and Search Bar -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="18,16">
-                    <StackPanel Spacing="12">
-                        <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="12">
-                            <TextBox Grid.Column="0" Header="Directorio raíz a explorar"
-                                     Text="{x:Bind ViewModel.TargetDirectory, Mode=TwoWay}" />
-                            <NumberBox Grid.Column="1" Header="Profundidad"
-                                       Value="{x:Bind ViewModel.MaxDepth, Mode=TwoWay}" SmallChange="1" Minimum="1" Maximum="6" Width="130" />
-                            <Button Grid.Column="2" VerticalAlignment="Bottom" Command="{x:Bind ViewModel.DiscoverCommand}">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE721;" />
-                                    <TextBlock Text="Iniciar Búsqueda" />
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="Respaldo de Contexto IA (Claude)" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock Text="Sincronización incremental por lotes con filtrado multi-capa de secretos y detección de Git."
+                           Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <!-- Quick Global Actions -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Button Command="{x:Bind ViewModel.DiscoverCommand}" ToolTipService.ToolTip="Comprobar cambios locales de Claude">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                      Width="16" Height="16" />
+                        <FontIcon Glyph="&#xE72C;" FontSize="13"
+                                  Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+                        <TextBlock Text="Actualizar estado" />
+                    </StackPanel>
+                </Button>
+
+                <Button Command="{x:Bind ViewModel.OpenDriveFolderCommand}"
+                        Visibility="{x:Bind ViewModel.IsDriveSyncConfigured, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8A7;" FontSize="13" />
+                        <TextBlock Text="Abrir Drive" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="20" HorizontalAlignment="Stretch">
+
+                <!-- KPI Metric Cards Grid -->
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Card 1: Estado General -->
+                    <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Estado" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.ClaudeSyncStatusText, Mode=OneWay}"
+                                       Foreground="{x:Bind ViewModel.ClaudeSyncStatusColor, Mode=OneWay, Converter={StaticResource HexToSolidColorBrushConverter}}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="{x:Bind ViewModel.RepositoriesScannedText, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis" MaxLines="1" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Card 2: Total Desincronizados -->
+                    <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE898;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Por sincronizar" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.OutOfSyncCandidatesCount, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="Archivos pendientes" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Card 3: Nuevos vs Modificados -->
+                    <Border Grid.Column="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7BA;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Composición" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.NewCandidatesCount, Mode=OneWay}" FontWeight="SemiBold" Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="nuevos" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
-                            </Button>
-                        </Grid>
+                                <TextBlock Text="•" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.ModifiedCandidatesCount, Mode=OneWay}" FontWeight="SemiBold" Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="modificados" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="Diferencia detectada por SHA-256" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
 
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <ProgressRing IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}" Width="16" Height="16" />
-                            <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" VerticalAlignment="Center"
+                    <!-- Card 4: Último Respaldo -->
+                    <Border Grid.Column="3" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE823;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="Último respaldo" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.LastSyncShortText, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                            <TextBlock Text="{x:Bind ViewModel.LastSyncSubtitleText, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
-                    </StackPanel>
-                </Border>
+                    </Border>
+                </Grid>
 
-                <!-- Actions & Sync Control Panel -->
+                <!-- Sync Control Action Bar Card -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="18,16">
-                    <StackPanel Spacing="14">
-                        <Grid ColumnDefinitions="Auto, Auto, *, Auto">
-                            <!-- PRIMARY ACTION: Sincronizar desincronizados -->
-                            <Button Grid.Column="0"
-                                    Command="{x:Bind ViewModel.SyncToDriveCommand}"
+                        BorderThickness="1" CornerRadius="8" Padding="20,16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Left Info or Progress -->
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Text="{x:Bind ViewModel.DriveSyncStatusMessage, Mode=OneWay}"
+                                       ToolTipService.ToolTip="{x:Bind ViewModel.DriveSyncStatusMessage, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <ProgressBar Value="{x:Bind ViewModel.DriveSyncProgressPercentage, Mode=OneWay}" Maximum="100"
+                                         Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                         Margin="0,4,16,0" />
+                        </StackPanel>
+
+                        <!-- Right Actions -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Button Content="Cancelar" Command="{x:Bind ViewModel.CancelDriveSyncCommand}"
+                                    Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+                            <!-- Primary Action Button -->
+                            <Button Command="{x:Bind ViewModel.SyncToDriveCommand}"
                                     IsEnabled="{x:Bind ViewModel.CanSyncToDrive, Mode=OneWay}"
                                     Style="{StaticResource AccentButtonStyle}"
-                                    ToolTipService.ToolTip="{x:Bind ViewModel.SyncButtonToolTip, Mode=OneWay}">
+                                    ToolTipService.ToolTip="{x:Bind ViewModel.SyncButtonToolTip, Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE753;" />
+                                    <FontIcon Glyph="&#xE753;" FontSize="14"/>
                                     <TextBlock Text="{x:Bind ViewModel.SyncButtonText, Mode=OneWay}" />
                                 </StackPanel>
                             </Button>
 
-                            <!-- Secondary options dropdown -->
-                            <Button Grid.Column="1" Margin="8,0,0,0" Padding="8,6"
-                                    Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                            <!-- Secondary Dropdown -->
+                            <Button Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    Padding="10,6">
                                 <FontIcon Glyph="&#xE712;" FontSize="13"/>
                                 <Button.Flyout>
-                                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                                        <MenuFlyoutItem Text="Ver qué falta por sincronizar"
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutItem Text="Ver qué falta por sincronizar (Ventana emergente)"
                                                         Command="{x:Bind ViewModel.PreviewOutOfSyncCandidatesCommand}">
                                             <MenuFlyoutItem.Icon>
                                                 <FontIcon Glyph="&#xE71C;" />
                                             </MenuFlyoutItem.Icon>
                                         </MenuFlyoutItem>
                                         <MenuFlyoutSeparator />
-                                        <MenuFlyoutItem Text="Forzar sincronización total a Drive"
+                                        <MenuFlyoutItem Text="Forzar sincronización total (Re-subir seleccionados)"
                                                         Command="{x:Bind ViewModel.ForceSyncAllToDriveCommand}">
                                             <MenuFlyoutItem.Icon>
                                                 <FontIcon Glyph="&#xE72C;" />
@@ -100,152 +212,271 @@
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
-
-                            <Button Grid.Column="1" Margin="8,0,0,0"
-                                    Command="{x:Bind ViewModel.CancelDriveSyncCommand}"
-                                    Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE71A;" />
-                                    <TextBlock Text="Cancelar" />
-                                </StackPanel>
-                            </Button>
-
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="2">
-                                <TextBlock Text="{x:Bind ViewModel.DriveSyncStatusMessage, Mode=OneWay}"
-                                           Visibility="{x:Bind ViewModel.DriveSyncStatusMessage, Mode=OneWay, Converter={StaticResource StringToVisibilityConverter}}"
-                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <TextBlock Text="{x:Bind ViewModel.LastSyncDisplay, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            </StackPanel>
-
-                            <TextBlock Grid.Column="3" VerticalAlignment="Center"
-                                       Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
-                                       Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold">
-                                <Run Text="{x:Bind ViewModel.DriveSyncCurrentCount, Mode=OneWay}" />
-                                <Run Text="/" />
-                                <Run Text="{x:Bind ViewModel.DriveSyncTotalCount, Mode=OneWay}" />
-                                <Run Text="archivos" />
-                            </TextBlock>
-                        </Grid>
-
-                        <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <ProgressBar Value="{x:Bind ViewModel.DriveSyncProgressPercentage, Mode=OneWay}" Minimum="0" Maximum="100" />
-                            <Grid ColumnDefinitions="*, Auto">
-                                <TextBlock Grid.Column="0" Text="{x:Bind ViewModel.DriveSyncProgressDetail, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.DriveSyncProgressPercentageText, Mode=OneWay}"
-                                           Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" />
-                            </Grid>
                         </StackPanel>
-                    </StackPanel>
+                    </Grid>
                 </Border>
 
-                <!-- Filters & Category Controls -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="18,16">
-                    <StackPanel Spacing="16">
-                        <!-- Quick Selection Filters -->
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Selección rápida" Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Solo desincronizados" Command="{x:Bind ViewModel.SelectOnlyOutOfSyncCommand}" />
-                                <Button Content="Seleccionar todo" Command="{x:Bind ViewModel.SelectAllCommand}" />
-                                <Button Content="Deseleccionar todo" Command="{x:Bind ViewModel.DeselectAllCommand}" />
-                            </StackPanel>
+                <!-- Sync Errors Banner -->
+                <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                        BorderBrush="{ThemeResource SystemFillColorCriticalBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="16,12"
+                        Visibility="{x:Bind ViewModel.HasSyncErrors, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE783;" Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="18"/>
+                            <TextBlock Text="{x:Bind ViewModel.SyncErrorsButtonText, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                       VerticalAlignment="Center"/>
                         </StackPanel>
 
-                        <!-- Select Only One Category -->
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Seleccionar sólo una categoría" Style="{StaticResource CaptionTextBlockStyle}"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <ItemsControl ItemsSource="{x:Bind ViewModel.AvailableCategories}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <helpers:WrapPanel HorizontalSpacing="8" VerticalSpacing="8" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="x:String">
-                                        <Button Tag="{x:Bind}" Content="{x:Bind}" Click="SelectOnlyCategory_Click" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="Ver detalles" Click="ShowSyncErrorsDialog_Click" Padding="12,5" FontSize="12"/>
+                            <Button Content="Reintentar errores" Command="{x:Bind ViewModel.RetryClaudeErrorsCommand}"
+                                    IsEnabled="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Padding="12,5" FontSize="12"/>
                         </StackPanel>
-
-                        <!-- Visibility Filters by Category -->
-                        <StackPanel Spacing="6">
-                            <Grid ColumnDefinitions="*, Auto">
-                                <TextBlock Grid.Column="0" Text="Mostrar categorías" Style="{StaticResource CaptionTextBlockStyle}"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Command="{x:Bind ViewModel.ShowAllCategoriesCommand}" Content="Mostrar todas" Padding="10,4" FontSize="12" />
-                            </Grid>
-                            <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryFilters}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <helpers:UniformColumnsPanel Columns="4" HorizontalSpacing="12" VerticalSpacing="4" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="models:CategoryFilterOption">
-                                        <CheckBox Content="{x:Bind Category}" MinWidth="0" IsChecked="{x:Bind IsChecked, Mode=TwoWay}" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </StackPanel>
+                    </Grid>
                 </Border>
-            </StackPanel>
-        </ListView.Header>
 
-        <!-- Candidate Categories Groups -->
-        <ListView.ItemTemplate>
-            <DataTemplate x:DataType="models:CandidateGroup">
-                <Expander Margin="0,4,0,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                          IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}">
-                    <Expander.Header>
-                        <Grid ColumnDefinitions="*, Auto, Auto" HorizontalAlignment="Stretch">
-                            <TextBlock Grid.Column="0" Text="{x:Bind Category}" VerticalAlignment="Center"
-                                       Style="{StaticResource SubtitleTextBlockStyle}" />
-                            <Button Grid.Column="1" Margin="0,0,8,0" Tag="{x:Bind}" Click="SelectAllInGroup_Click">
-                                <TextBlock Text="Seleccionar todo" />
-                            </Button>
-                            <Button Grid.Column="2" Tag="{x:Bind}" Click="DeselectAllInGroup_Click">
-                                <TextBlock Text="Ninguno" />
-                            </Button>
-                        </Grid>
-                    </Expander.Header>
+                <!-- Out of Sync Files Live List Section -->
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
-                    <ItemsControl ItemsSource="{x:Bind}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="models:ClaudeDiscoveryCandidate">
-                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="0,0,0,1" Padding="8,8">
-                                    <Grid ColumnDefinitions="Auto, *, Auto, Auto" ColumnSpacing="12">
-                                        <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <TextBlock Text="Archivos de contexto pendientes de sincronización" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind ViewModel.OutOfSyncCandidatesCount, Mode=OneWay}"
+                                           FontSize="12" FontWeight="Bold" Foreground="White" />
+                            </Border>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1" Text="Solo archivos nuevos o modificados no rastreados por Git"
+                                   Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Items List (Shown when there are out-of-sync files) -->
+                    <ListView ItemsSource="{x:Bind ViewModel.OutOfSyncCandidatesList, Mode=OneWay}"
+                              SelectionMode="None"
+                              Visibility="{x:Bind ViewModel.HasOutOfSyncCandidates, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                              Padding="0" HorizontalAlignment="Stretch">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:OutOfSyncFile">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="16,10" Margin="0,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <FontIcon Grid.Column="0" Glyph="&#xE8A5;" FontSize="18" Margin="0,0,14,0"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
 
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind RelativePath}" Style="{StaticResource BodyStrongTextBlockStyle}"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{x:Bind FilePath}" Style="{StaticResource CaptionTextBlockStyle}"
+                                            <TextBlock Text="{x:Bind FileName}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="{x:Bind RelativePath}" Style="{StaticResource CaptionTextBlockStyle}"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
 
-                                        <Border Grid.Column="2" Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                                CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                            <TextBlock Text="{x:Bind StatusBadge}" FontSize="11" FontWeight="SemiBold" />
-                                        </Border>
-
-                                        <TextBlock Grid.Column="3" Text="{x:Bind SizeDisplay}" Style="{StaticResource CaptionTextBlockStyle}"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind FormattedFileSize}" Style="{StaticResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                            <Border CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
+                                                    Background="{ThemeResource AccentFillColorDefaultBrush}">
+                                                <TextBlock Text="{x:Bind Reason}" FontSize="11" FontWeight="SemiBold" Foreground="White" />
+                                            </Border>
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Clean and Synced Banner (Shown when no files are pending) -->
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="32,28"
+                            Visibility="{x:Bind ViewModel.HasOutOfSyncCandidates, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                            <FontIcon Glyph="&#xE73E;" FontSize="36" Foreground="{ThemeResource SystemFillColorSuccessBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="¡Todo tu contexto IA está sincronizado!"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="No hay archivos de Claude nuevos ni modificados pendientes de respaldar en Google Drive."
+                                       Style="{StaticResource BodyTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Collapsible Explorer: Directory Config, Category Filters & All Detected Candidates -->
+                <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          IsExpanded="{x:Bind ViewModel.IsExplorerExpanded, Mode=TwoWay}">
+                    <Expander.Header>
+                        <Grid ColumnDefinitions="*, Auto" HorizontalAlignment="Stretch" Padding="0,4">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE71C;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Explorador de Categorías, Filtros y Directorio Raíz" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="Personaliza la ruta de exploración o selecciona manualmente archivos por categoría."
+                                               Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </Expander.Header>
+
+                    <StackPanel Spacing="16" Padding="4,8,4,4">
+                        <!-- Configuration and Search Bar -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="18,16">
+                            <StackPanel Spacing="12">
+                                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="12">
+                                    <TextBox Grid.Column="0" Header="Directorio raíz a explorar"
+                                             Text="{x:Bind ViewModel.TargetDirectory, Mode=TwoWay}" />
+                                    <NumberBox Grid.Column="1" Header="Profundidad"
+                                               Value="{x:Bind ViewModel.MaxDepth, Mode=TwoWay}" SmallChange="1" Minimum="1" Maximum="6" Width="130" />
+                                    <Button Grid.Column="2" VerticalAlignment="Bottom" Command="{x:Bind ViewModel.DiscoverCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE721;" />
+                                            <TextBlock Text="Iniciar Búsqueda" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <ProgressRing IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}" Width="16" Height="16" />
+                                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" VerticalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Filters & Category Controls -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="18,16">
+                            <StackPanel Spacing="16">
+                                <!-- Quick Selection Filters -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Selección rápida" Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Solo desincronizados" Command="{x:Bind ViewModel.SelectOnlyOutOfSyncCommand}" />
+                                        <Button Content="Seleccionar todo" Command="{x:Bind ViewModel.SelectAllCommand}" />
+                                        <Button Content="Deseleccionar todo" Command="{x:Bind ViewModel.DeselectAllCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- Select Only One Category -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Seleccionar sólo una categoría" Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ItemsControl ItemsSource="{x:Bind ViewModel.AvailableCategories}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <helpers:WrapPanel HorizontalSpacing="8" VerticalSpacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Button Tag="{x:Bind}" Content="{x:Bind}" Click="SelectOnlyCategory_Click" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+
+                                <!-- Visibility Filters by Category -->
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Grid.Column="0" Text="Mostrar categorías" Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Command="{x:Bind ViewModel.ShowAllCategoriesCommand}" Content="Mostrar todas" Padding="10,4" FontSize="12" />
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{x:Bind ViewModel.CategoryFilters}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <helpers:UniformColumnsPanel Columns="4" HorizontalSpacing="12" VerticalSpacing="4" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:CategoryFilterOption">
+                                                <CheckBox Content="{x:Bind Category}" MinWidth="0" IsChecked="{x:Bind IsChecked, Mode=TwoWay}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Candidate Categories Groups -->
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.GroupedCandidates, Mode=OneWay}" HorizontalAlignment="Stretch">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:CandidateGroup">
+                                    <Expander Margin="0,4,0,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                              IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}">
+                                        <Expander.Header>
+                                            <Grid ColumnDefinitions="*, Auto, Auto" HorizontalAlignment="Stretch">
+                                                <TextBlock Grid.Column="0" Text="{x:Bind Category}" VerticalAlignment="Center"
+                                                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                                                <Button Grid.Column="1" Margin="0,0,8,0" Tag="{x:Bind}" Click="SelectAllInGroup_Click">
+                                                    <TextBlock Text="Seleccionar todo" />
+                                                </Button>
+                                                <Button Grid.Column="2" Tag="{x:Bind}" Click="DeselectAllInGroup_Click">
+                                                    <TextBlock Text="Ninguno" />
+                                                </Button>
+                                            </Grid>
+                                        </Expander.Header>
+
+                                        <ItemsControl ItemsSource="{x:Bind}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ClaudeDiscoveryCandidate">
+                                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                            BorderThickness="0,0,0,1" Padding="8,8">
+                                                        <Grid ColumnDefinitions="Auto, *, Auto, Auto" ColumnSpacing="12">
+                                                            <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" VerticalAlignment="Center" />
+
+                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                                <TextBlock Text="{x:Bind RelativePath}" Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{x:Bind FilePath}" Style="{StaticResource CaptionTextBlockStyle}"
+                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+
+                                                            <Border Grid.Column="2" Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                                    CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                                                <TextBlock Text="{x:Bind StatusBadge, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                            </Border>
+
+                                                            <TextBlock Grid.Column="3" Text="{x:Bind SizeDisplay}" Style="{StaticResource CaptionTextBlockStyle}"
+                                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </Expander>
-            </DataTemplate>
-        </ListView.ItemTemplate>
-    </ListView>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </Page>

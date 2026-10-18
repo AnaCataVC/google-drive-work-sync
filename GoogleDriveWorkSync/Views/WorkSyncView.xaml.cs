@@ -22,20 +22,44 @@ public sealed partial class WorkSyncView : Page
         ViewModel = App.GetService<WorkSyncViewModel>();
         this.DataContext = ViewModel;
 
-        ViewModel.OutOfSyncPreviewReady += async (s, e) =>
-        {
-            await ShowOutOfSyncDialogAsync();
-        };
+        this.Loaded += OnPageLoaded;
+        this.Unloaded += OnPageUnloaded;
+    }
 
-        ViewModel.CleanupSuggestionsRequested += async (s, e) =>
-        {
-            await ShowCleanupSuggestionsDialogAsync();
-        };
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.OutOfSyncPreviewReady -= OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested -= OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested -= OnDuplicatesInspectorRequested;
 
-        ViewModel.DuplicatesInspectorRequested += async (s, e) =>
-        {
-            await ShowDuplicatesInspectorDialogAsync();
-        };
+        ViewModel.OutOfSyncPreviewReady += OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested += OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested += OnDuplicatesInspectorRequested;
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.OutOfSyncPreviewReady -= OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested -= OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested -= OnDuplicatesInspectorRequested;
+    }
+
+    private async void OnOutOfSyncPreviewReady(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowOutOfSyncDialogAsync();
+    }
+
+    private async void OnCleanupSuggestionsRequested(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowCleanupSuggestionsDialogAsync();
+    }
+
+    private async void OnDuplicatesInspectorRequested(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowDuplicatesInspectorDialogAsync();
     }
 
     private XamlRoot? GetEffectiveXamlRoot() => this.XamlRoot ?? App.Window.Content?.XamlRoot;

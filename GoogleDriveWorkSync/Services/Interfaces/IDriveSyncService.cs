@@ -13,14 +13,17 @@ public interface IDriveSyncService
     bool IsSyncing { get; }
     bool IsConfigured { get; }
     IReadOnlyList<SyncErrorItem> LastSyncErrors { get; }
+    IReadOnlyList<SyncErrorItem> LastClaudeSyncErrors { get; }
 
     event EventHandler? SettingsChanged;
     event EventHandler<SyncProgressReport>? SyncProgressChanged;
     event EventHandler<SyncResultSummary>? SyncCompleted;
     event EventHandler<IReadOnlyList<SyncErrorItem>>? SyncErrorsChanged;
+    event EventHandler<IReadOnlyList<SyncErrorItem>>? ClaudeSyncErrorsChanged;
 
     void UpdateSettings(DriveSyncSettings settings);
     void ClearSyncErrors();
+    void ClearClaudeSyncErrors();
     void ClearHashIndex();
     void CancelSync();
 
@@ -31,6 +34,17 @@ public interface IDriveSyncService
         SyncSource? onlySource = null);
 
     Task<SyncResultSummary> RetryFailedFilesAsync(
+        IProgress<SyncProgressReport>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    Task<SyncResultSummary> SyncClaudeCandidatesAsync(
+        IEnumerable<ClaudeDiscoveryCandidate> candidates,
+        Func<ClaudeDiscoveryCandidate, string> drivePathBuilder,
+        IProgress<SyncProgressReport>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool forceFullSync = false);
+
+    Task<SyncResultSummary> RetryClaudeFailedFilesAsync(
         IProgress<SyncProgressReport>? progress = null,
         CancellationToken cancellationToken = default);
 

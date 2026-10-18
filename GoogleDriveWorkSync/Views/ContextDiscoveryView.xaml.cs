@@ -22,20 +22,44 @@ public sealed partial class ContextDiscoveryView : Page
         ViewModel = App.GetService<ContextDiscoveryViewModel>();
         this.DataContext = ViewModel;
 
-        ViewModel.OutOfSyncPreviewReady += async (s, e) =>
-        {
-            await ShowOutOfSyncDialogAsync();
-        };
+        this.Loaded += OnPageLoaded;
+        this.Unloaded += OnPageUnloaded;
+    }
 
-        ViewModel.CleanupSuggestionsRequested += async (s, e) =>
-        {
-            await ShowCleanupSuggestionsDialogAsync();
-        };
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.OutOfSyncPreviewReady -= OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested -= OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested -= OnDuplicatesInspectorRequested;
 
-        ViewModel.DuplicatesInspectorRequested += async (s, e) =>
-        {
-            await ShowDuplicatesInspectorDialogAsync();
-        };
+        ViewModel.OutOfSyncPreviewReady += OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested += OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested += OnDuplicatesInspectorRequested;
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.OutOfSyncPreviewReady -= OnOutOfSyncPreviewReady;
+        ViewModel.CleanupSuggestionsRequested -= OnCleanupSuggestionsRequested;
+        ViewModel.DuplicatesInspectorRequested -= OnDuplicatesInspectorRequested;
+    }
+
+    private async void OnOutOfSyncPreviewReady(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowOutOfSyncDialogAsync();
+    }
+
+    private async void OnCleanupSuggestionsRequested(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowCleanupSuggestionsDialogAsync();
+    }
+
+    private async void OnDuplicatesInspectorRequested(object? sender, EventArgs e)
+    {
+        if (!this.IsLoaded) return;
+        await ShowDuplicatesInspectorDialogAsync();
     }
 
     private XamlRoot? GetEffectiveXamlRoot() => this.XamlRoot ?? App.Window.Content?.XamlRoot;
@@ -61,6 +85,58 @@ public sealed partial class ContextDiscoveryView : Page
         if (sender is Button btn && btn.Tag is string category)
         {
             ViewModel.SelectOnlyCategory(category);
+        }
+    }
+
+    private async void ShowSyncErrorsDialog_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await _dialogLock.WaitAsync(0)) return;
+
+        try
+        {
+            var xamlRoot = GetEffectiveXamlRoot();
+            if (xamlRoot == null) return;
+
+            var errorsSnapshot = ViewModel.SyncErrorsList.ToList();
+            var scroll = new ScrollViewer { MaxHeight = 350 };
+            var stack = new StackPanel { Spacing = 8 };
+
+            foreach (var err in errorsSnapshot)
+            {
+                var border = new Border
+                {
+                    Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                    BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(12, 8, 12, 8)
+                };
+
+                var itemStack = new StackPanel { Spacing = 4 };
+                itemStack.Children.Add(new TextBlock { Text = err.FileName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                itemStack.Children.Add(new TextBlock { Text = $"Categoría: {err.ErrorCategory}", FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
+                itemStack.Children.Add(new TextBlock { Text = err.ErrorMessage, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+
+                border.Child = itemStack;
+                stack.Children.Add(border);
+            }
+
+            scroll.Content = stack;
+
+            var dialog = new ContentDialog
+            {
+                Title = $"Archivos de contexto con error ({errorsSnapshot.Count})",
+                Content = scroll,
+                CloseButtonText = "Cerrar",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot
+            };
+
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _dialogLock.Release();
         }
     }
 

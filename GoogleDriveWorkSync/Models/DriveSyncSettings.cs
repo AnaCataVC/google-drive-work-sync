@@ -63,6 +63,12 @@ public class DriveSyncSettings
     /// <summary>Bucket for Claude global configuration (skills, hooks, agents with no repo).</summary>
     public string ClaudeConfigBucketName { get; set; } = "_claude-config";
 
+    /// <summary>Root directory scanned for Claude AI context files.</summary>
+    public string ClaudeTargetDirectory { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>Maximum directory traversal depth for Claude AI context discovery.</summary>
+    public int ClaudeMaxDepth { get; set; } = 4;
+
     /// <summary>Timestamp of last successful Claude context sync.</summary>
     public DateTime? LastClaudeSyncAt { get; set; }
 

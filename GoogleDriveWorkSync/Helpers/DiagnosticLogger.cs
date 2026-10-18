@@ -43,4 +43,28 @@ public static class DiagnosticLogger
             action();
         }
     }
+
+    public static System.Threading.Tasks.Task RunOnUIThreadAsync(Action action)
+    {
+        if (UIThreadDispatcher != null && (IsUIThreadCheck == null || !IsUIThreadCheck()))
+        {
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            UIThreadDispatcher(() =>
+            {
+                try
+                {
+                    action();
+                    tcs.TrySetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+            });
+            return tcs.Task;
+        }
+
+        action();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
 }

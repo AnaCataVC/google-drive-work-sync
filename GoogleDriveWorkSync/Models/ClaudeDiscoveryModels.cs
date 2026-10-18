@@ -43,7 +43,19 @@ public class ClaudeDiscoveryCandidate : INotifyPropertyChanged
     public long FileSizeBytes { get; set; }
     public DateTime LastModified { get; set; }
 
-    public CandidateSyncStatus SyncStatus { get; set; } = CandidateSyncStatus.New;
+    private CandidateSyncStatus _syncStatus = CandidateSyncStatus.New;
+
+    public CandidateSyncStatus SyncStatus
+    {
+        get => _syncStatus;
+        set
+        {
+            if (_syncStatus == value) return;
+            _syncStatus = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SyncStatus)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusBadge)));
+        }
+    }
 
     public string SizeDisplay => OutOfSyncFile.FormatBytes(FileSizeBytes);
 

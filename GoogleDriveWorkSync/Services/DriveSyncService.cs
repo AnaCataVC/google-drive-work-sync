@@ -33,6 +33,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     public static string DataDirectory { get; set; } = DefaultDataDirectory;
     private static string HashIndexFile => Path.Combine(DataDirectory, "sync_hashes.json");
     private static string ErrorsFile => Path.Combine(DataDirectory, "sync_errors.json");
+    private static string ClaudeErrorsFile => Path.Combine(DataDirectory, "sync_claude_errors.json");
 
     private const string UnreadableDirectoryCategory = "Carpeta sin acceso";
     private const int MaxBatchFileCount = 8;
@@ -44,6 +45,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     private readonly object _hashLock = new();
     private readonly object _errorLock = new();
     private readonly List<SyncErrorItem> _lastSyncErrors = new();
+    private readonly List<SyncErrorItem> _lastClaudeSyncErrors = new();
     private Dictionary<string, HashCacheEntry> _hashIndex = new(StringComparer.OrdinalIgnoreCase);
 
     private DriveSyncSettings _settings;
@@ -66,10 +68,22 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }
     }
 
+    public IReadOnlyList<SyncErrorItem> LastClaudeSyncErrors
+    {
+        get
+        {
+            lock (_errorLock)
+            {
+                return _lastClaudeSyncErrors.ToList().AsReadOnly();
+            }
+        }
+    }
+
     public event EventHandler? SettingsChanged;
     public event EventHandler<SyncProgressReport>? SyncProgressChanged;
     public event EventHandler<SyncResultSummary>? SyncCompleted;
     public event EventHandler<IReadOnlyList<SyncErrorItem>>? SyncErrorsChanged;
+    public event EventHandler<IReadOnlyList<SyncErrorItem>>? ClaudeSyncErrorsChanged;
 
     public DriveSyncService(HttpClient? httpClient = null)
     {
@@ -78,6 +92,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         _settings = LoadSettings();
         LoadHashIndex();
         LoadSyncErrors();
+        LoadClaudeSyncErrors();
     }
 
     public void UpdateSettings(DriveSyncSettings settings)
@@ -110,6 +125,16 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             SaveSyncErrors();
         }
         SyncErrorsChanged?.Invoke(this, LastSyncErrors);
+    }
+
+    public void ClearClaudeSyncErrors()
+    {
+        lock (_errorLock)
+        {
+            _lastClaudeSyncErrors.Clear();
+            SaveClaudeSyncErrors();
+        }
+        ClaudeSyncErrorsChanged?.Invoke(this, LastClaudeSyncErrors);
     }
 
     public void CancelSync()
@@ -534,6 +559,422 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         return summary;
     }
 
+    public async Task<SyncResultSummary> SyncClaudeCandidatesAsync(
+        IEnumerable<ClaudeDiscoveryCandidate> candidates,
+        Func<ClaudeDiscoveryCandidate, string> drivePathBuilder,
+        IProgress<SyncProgressReport>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool forceFullSync = false)
+    {
+        if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) != 0)
+        {
+            return new SyncResultSummary
+            {
+                Message = "Ya hay una sincronización en curso."
+            };
+        }
+
+        if (!IsConfigured)
+        {
+            Interlocked.Exchange(ref _isSyncing, 0);
+            return new SyncResultSummary
+            {
+                Message = "Configuración incompleta: Verifica la URL del Web App en Ajustes."
+            };
+        }
+
+        CancellationToken token;
+        lock (_ctsLock)
+        {
+            _activeCts?.Dispose();
+            _activeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            token = _activeCts.Token;
+        }
+
+        var summary = new SyncResultSummary();
+        var currentRunErrors = new List<SyncErrorItem>();
+
+        try
+        {
+            var candidateList = (candidates ?? Enumerable.Empty<ClaudeDiscoveryCandidate>())
+                .Where(c => !c.IsTrackedByGit)
+                .ToList();
+
+            summary.TotalScanned = candidateList.Count;
+            var pendingUploads = new List<UploadCandidate>();
+            var candidateByPath = new Dictionary<string, ClaudeDiscoveryCandidate>(StringComparer.OrdinalIgnoreCase);
+            int processed = 0;
+
+            foreach (var candidate in candidateList)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    summary.Message = "Sincronización cancelada por el usuario.";
+                    break;
+                }
+
+                processed++;
+                candidateByPath[candidate.FilePath] = candidate;
+                string drivePath = drivePathBuilder(candidate);
+
+                var localMeta = new LocalFileMetadata
+                {
+                    FilePath = candidate.FilePath,
+                    FileName = Path.GetFileName(candidate.FilePath),
+                    RelativePath = drivePath,
+                    HashKey = drivePath,
+                    FileSize = candidate.FileSizeBytes
+                };
+
+                var classification = ClassifyFile(localMeta, forceFullSync);
+
+                if (classification.Outcome == FileClassificationOutcome.MetadataStale)
+                {
+                    SetKnownHash(drivePath, classification.Hash!, classification.StatFileInfo, driveRelativePath: drivePath, localFilePath: candidate.FilePath);
+                    DiagnosticLogger.RunOnUIThread(() => candidate.SyncStatus = CandidateSyncStatus.UpToDate);
+                }
+
+                if (classification.Outcome == FileClassificationOutcome.Unreadable)
+                {
+                    var (category, friendlyMsg) = CategorizeError(classification.ReadError!, candidate.FilePath);
+                    RecordError(summary, currentRunErrors, new SyncErrorItem
+                    {
+                        FileName = localMeta.FileName,
+                        FilePath = candidate.FilePath,
+                        RelativePath = drivePath,
+                        HashKey = drivePath,
+                        ErrorCategory = category,
+                        ErrorMessage = friendlyMsg,
+                        Timestamp = DateTime.Now
+                    });
+                    continue;
+                }
+
+                if (classification.Outcome != FileClassificationOutcome.NeedsUpload)
+                {
+                    DiagnosticLogger.RunOnUIThread(() => candidate.SyncStatus = CandidateSyncStatus.UpToDate);
+                    summary.Skipped++;
+                    progress?.Report(new SyncProgressReport
+                    {
+                        TotalFiles = summary.TotalScanned,
+                        ProcessedFiles = processed,
+                        CurrentFileName = localMeta.FileName,
+                        UploadedCount = summary.Uploaded,
+                        SkippedCount = summary.Skipped,
+                        ErrorCount = summary.Errors,
+                        StatusMessage = $"Sin cambios: {localMeta.FileName}"
+                    });
+                    continue;
+                }
+
+                pendingUploads.Add(new UploadCandidate(
+                    candidate.FilePath,
+                    localMeta.FileName,
+                    drivePath,
+                    drivePath,
+                    classification.Hash!,
+                    classification.StatFileInfo!,
+                    classification.IsNew));
+            }
+
+            PersistHashIndex();
+
+            if (!token.IsCancellationRequested)
+            {
+                int totalPending = pendingUploads.Count;
+                var batches = BuildBatches(pendingUploads);
+                int processedPending = 0;
+
+                foreach (var batch in batches)
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        summary.Message = "Sincronización cancelada por el usuario.";
+                        break;
+                    }
+
+                    progress?.Report(new SyncProgressReport
+                    {
+                        TotalFiles = totalPending,
+                        ProcessedFiles = processedPending,
+                        CurrentFileName = batch.Count == 1 ? batch[0].FileName : $"{batch.Count} archivos",
+                        UploadedCount = summary.Uploaded,
+                        SkippedCount = summary.Skipped,
+                        ErrorCount = summary.Errors,
+                        TotalPendingFiles = totalPending,
+                        StatusMessage = batch.Count == 1
+                            ? $"Subiendo: {batch[0].FileName}..."
+                            : $"Subiendo lote de {batch.Count} archivos de contexto IA..."
+                    });
+
+                    var completedItems = await ProcessBatchAsync(batch, summary, currentRunErrors, token, emitGlobalReport: false);
+                    processedPending += batch.Count;
+
+                    DiagnosticLogger.RunOnUIThread(() =>
+                    {
+                        foreach (var completed in completedItems)
+                        {
+                            if (completed.Success && candidateByPath.TryGetValue(completed.FilePath, out var matchedCandidate))
+                            {
+                                matchedCandidate.SyncStatus = CandidateSyncStatus.UpToDate;
+                            }
+                        }
+                    });
+
+                    progress?.Report(new SyncProgressReport
+                    {
+                        TotalFiles = totalPending,
+                        ProcessedFiles = processedPending,
+                        CurrentFileName = batch[^1].FileName,
+                        UploadedCount = summary.Uploaded,
+                        SkippedCount = summary.Skipped,
+                        ErrorCount = summary.Errors,
+                        TotalPendingFiles = totalPending,
+                        CompletedItems = completedItems,
+                        StatusMessage = $"Progreso: {summary.Uploaded} subidos, {summary.Errors} errores."
+                    });
+                }
+            }
+
+            lock (_errorLock)
+            {
+                _lastClaudeSyncErrors.Clear();
+                _lastClaudeSyncErrors.AddRange(currentRunErrors);
+                SaveClaudeSyncErrors();
+            }
+            ClaudeSyncErrorsChanged?.Invoke(this, LastClaudeSyncErrors);
+
+            summary.FailedFiles = currentRunErrors;
+
+            if (!token.IsCancellationRequested)
+            {
+                summary.Message = summary.Success
+                    ? (summary.Uploaded == 0 && summary.Skipped > 0
+                        ? $"Todos los archivos seleccionados ({summary.Skipped}) ya están al día en Google Drive."
+                        : $"Sincronización completada: {summary.Uploaded} respaldados, {summary.Skipped} sin cambios.")
+                    : $"Sincronización completada con {summary.Errors} errores ({summary.Uploaded} respaldados, {summary.Skipped} sin cambios).";
+
+                if (summary.Uploaded > 0 || summary.Errors == 0)
+                {
+                    _settings.LastClaudeSyncAt = DateTime.Now;
+                    if (summary.Uploaded > 0)
+                    {
+                        _settings.LastClaudeSyncCount = summary.Uploaded;
+                    }
+                    SaveSettings();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogCrash("DriveSyncService_SyncClaudeCandidatesAsync", ex, "Error durante la sincronización de Claude");
+            summary.Message = $"Error durante la sincronización: {ex.Message}";
+        }
+        finally
+        {
+            lock (_ctsLock)
+            {
+                _activeCts?.Dispose();
+                _activeCts = null;
+            }
+
+            Interlocked.Exchange(ref _isSyncing, 0);
+        }
+
+        return summary;
+    }
+
+    public async Task<SyncResultSummary> RetryClaudeFailedFilesAsync(
+        IProgress<SyncProgressReport>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) != 0)
+        {
+            return new SyncResultSummary
+            {
+                Message = "Ya hay una sincronización en curso."
+            };
+        }
+
+        if (!IsConfigured)
+        {
+            Interlocked.Exchange(ref _isSyncing, 0);
+            return new SyncResultSummary
+            {
+                Message = "Configuración incompleta: Verifica la URL del Web App."
+            };
+        }
+
+        List<SyncErrorItem> filesToRetry;
+        lock (_errorLock)
+        {
+            filesToRetry = _lastClaudeSyncErrors.ToList();
+        }
+
+        if (filesToRetry.Count == 0)
+        {
+            Interlocked.Exchange(ref _isSyncing, 0);
+            return new SyncResultSummary
+            {
+                Message = "No hay archivos de Claude con error pendientes de reintentar."
+            };
+        }
+
+        CancellationToken token;
+        lock (_ctsLock)
+        {
+            _activeCts?.Dispose();
+            _activeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            token = _activeCts.Token;
+        }
+
+        var summary = new SyncResultSummary
+        {
+            TotalScanned = filesToRetry.Count
+        };
+
+        var remainingErrors = new List<SyncErrorItem>();
+
+        try
+        {
+            var pendingRetries = new List<UploadCandidate>();
+
+            foreach (var item in filesToRetry)
+            {
+                if (!File.Exists(item.FilePath))
+                {
+                    summary.Errors++;
+                    var (category, friendlyMsg) = CategorizeError(
+                        new FileNotFoundException("El archivo local ya no existe.", item.FilePath), item.FilePath);
+                    item.ErrorMessage = friendlyMsg;
+                    item.ErrorCategory = category;
+                    item.Timestamp = DateTime.Now;
+                    remainingErrors.Add(item);
+                    summary.FailedFiles.Add(item);
+                    continue;
+                }
+
+                var info = SnapshotFileInfo(item.FilePath);
+                string currentHash;
+                try
+                {
+                    currentHash = ComputeSha256(item.FilePath);
+                }
+                catch (Exception ex)
+                {
+                    summary.Errors++;
+                    var (category, friendlyMsg) = CategorizeError(ex, item.FilePath);
+                    item.ErrorMessage = friendlyMsg;
+                    item.ErrorCategory = category;
+                    item.Timestamp = DateTime.Now;
+                    remainingErrors.Add(item);
+                    summary.FailedFiles.Add(item);
+                    continue;
+                }
+
+                pendingRetries.Add(new UploadCandidate(
+                    item.FilePath,
+                    item.FileName,
+                    item.RelativePath,
+                    item.HashKey,
+                    currentHash,
+                    info,
+                    GetKnownHash(item.HashKey) == null));
+            }
+
+            int totalRetries = pendingRetries.Count;
+            var batches = BuildBatches(pendingRetries);
+            int processedRetries = 0;
+
+            for (int bi = 0; bi < batches.Count; bi++)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    summary.Message = "Reintento cancelado por el usuario.";
+                    for (int rem = bi; rem < batches.Count; rem++)
+                    {
+                        foreach (var candidate in batches[rem])
+                        {
+                            remainingErrors.Add(BuildErrorItem(candidate, "Cancelado", "Reintento cancelado por el usuario."));
+                        }
+                    }
+                    break;
+                }
+
+                var batch = batches[bi];
+
+                progress?.Report(new SyncProgressReport
+                {
+                    TotalFiles = totalRetries,
+                    ProcessedFiles = processedRetries,
+                    CurrentFileName = batch.Count == 1 ? batch[0].FileName : $"{batch.Count} archivos",
+                    UploadedCount = summary.Uploaded,
+                    SkippedCount = summary.Skipped,
+                    ErrorCount = summary.Errors,
+                    TotalPendingFiles = totalRetries,
+                    StatusMessage = batch.Count == 1
+                        ? $"Reintentando: {batch[0].FileName}..."
+                        : $"Reintentando lote de {batch.Count} archivos..."
+                });
+
+                var completedItems = await ProcessBatchAsync(batch, summary, remainingErrors, token, emitGlobalReport: false);
+                processedRetries += batch.Count;
+
+                progress?.Report(new SyncProgressReport
+                {
+                    TotalFiles = totalRetries,
+                    ProcessedFiles = processedRetries,
+                    CurrentFileName = batch[^1].FileName,
+                    UploadedCount = summary.Uploaded,
+                    SkippedCount = summary.Skipped,
+                    ErrorCount = summary.Errors,
+                    TotalPendingFiles = totalRetries,
+                    CompletedItems = completedItems,
+                    StatusMessage = $"Progreso: {summary.Uploaded} subidos, {summary.Errors} errores."
+                });
+            }
+
+            lock (_errorLock)
+            {
+                _lastClaudeSyncErrors.Clear();
+                _lastClaudeSyncErrors.AddRange(remainingErrors);
+                SaveClaudeSyncErrors();
+            }
+            ClaudeSyncErrorsChanged?.Invoke(this, LastClaudeSyncErrors);
+
+            summary.FailedFiles = remainingErrors;
+            if (!token.IsCancellationRequested)
+            {
+                summary.Message = summary.Success
+                    ? $"Reintento exitoso: Todos los {summary.Uploaded} archivos de Claude se subieron correctamente."
+                    : $"Reintento completado: {summary.Uploaded} subidos, {summary.Errors} aún con error.";
+
+                if (summary.Uploaded > 0)
+                {
+                    _settings.LastClaudeSyncAt = DateTime.Now;
+                    _settings.LastClaudeSyncCount = summary.Uploaded;
+                    SaveSettings();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            summary.Message = $"Error durante el reintento: {ex.Message}";
+        }
+        finally
+        {
+            lock (_ctsLock)
+            {
+                _activeCts?.Dispose();
+                _activeCts = null;
+            }
+
+            Interlocked.Exchange(ref _isSyncing, 0);
+        }
+
+        return summary;
+    }
+
     public async Task<IReadOnlyList<OutOfSyncFile>> PreviewOutOfSyncAsync(
         CancellationToken cancellationToken = default,
         SyncSource? onlySource = null)
@@ -714,7 +1155,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         List<UploadCandidate> batch,
         SyncResultSummary summary,
         List<SyncErrorItem> errorSink,
-        CancellationToken token)
+        CancellationToken token,
+        bool emitGlobalReport = true)
     {
         var completedItems = new List<CompletedSyncItem>();
         try
@@ -727,7 +1169,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 if (result.Success)
                 {
-                    SetKnownHash(candidate.HashKey, candidate.Hash, candidate.Info, result.FileId, candidate.RelativePath);
+                    SetKnownHash(candidate.HashKey, candidate.Hash, candidate.Info, result.FileId, candidate.RelativePath, candidate.FilePath);
                     summary.Uploaded++;
                     completedItems.Add(new CompletedSyncItem
                     {
@@ -1362,6 +1804,34 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         SaveJsonFile(ErrorsFile, _lastSyncErrors);
     }
 
+    private void LoadClaudeSyncErrors()
+    {
+        lock (_errorLock)
+        {
+            var json = TryReadFileText(ClaudeErrorsFile);
+            if (json == null) return;
+
+            try
+            {
+                var list = JsonSerializer.Deserialize<List<SyncErrorItem>>(json);
+                if (list != null)
+                {
+                    _lastClaudeSyncErrors.Clear();
+                    _lastClaudeSyncErrors.AddRange(list);
+                }
+            }
+            catch
+            {
+                _lastClaudeSyncErrors.Clear();
+            }
+        }
+    }
+
+    private void SaveClaudeSyncErrors()
+    {
+        SaveJsonFile(ClaudeErrorsFile, _lastClaudeSyncErrors);
+    }
+
     private static DriveSyncSettings LoadSettings()
     {
         return LocalSettingsHelper.LoadJson<DriveSyncSettings>(SettingsKey);
@@ -1377,7 +1847,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string extension = Path.GetExtension(fileName).ToLowerInvariant();
         return extension switch
         {
-            ".txt" => "text/plain",
+            ".md" => "text/markdown",
+            ".txt" or ".ps1" or ".sh" or ".py" or ".js" or ".mjs" or ".cjs" or ".ts" or ".tsx" or ".jsx" or ".css" or ".cmd" or ".bat" or ".yaml" or ".yml" or ".toml" => "text/plain",
             ".pdf" => "application/pdf",
             ".jpg" or ".jpeg" => "image/jpeg",
             ".png" => "image/png",

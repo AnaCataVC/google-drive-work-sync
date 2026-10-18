@@ -131,6 +131,14 @@ public sealed partial class MainWindow : Window
         {
             var driveSyncService = App.GetService<IDriveSyncService>();
             await driveSyncService.RunSyncAsync(forceFullSync: false);
+
+            var scheduleService = App.GetService<ISyncScheduleService>();
+            if (scheduleService.Settings.SyncClaudeContextAlso && driveSyncService.IsConfigured)
+            {
+                var contextVm = App.GetService<ContextDiscoveryViewModel>();
+                await contextVm.DiscoverAsync();
+                await contextVm.SyncToDriveAsync();
+            }
         }
         catch { }
     }
