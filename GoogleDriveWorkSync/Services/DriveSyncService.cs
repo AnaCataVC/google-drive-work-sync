@@ -320,7 +320,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
             if (!token.IsCancellationRequested)
             {
-                PurgeOrphanHashes();
+                // Note: Orphan hashes are preserved in _hashIndex so the user can review and trash them
+                // via DetectOrphansAsync / TrashOrphansAsync. Manual purging remains available via PurgeOrphanHashes().
 
                 summary.Message = summary.Success
                     ? $"Sincronización completada: {summary.Uploaded} subidos, {summary.Skipped} sin cambios."
@@ -1908,6 +1909,26 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 snapshot = new Dictionary<string, HashCacheEntry>(_hashIndex, StringComparer.OrdinalIgnoreCase);
             }
 
+            // Map existing active files by SHA-256 for instant rename/move detection
+            var activeFileByHash = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (k, e) in snapshot)
+            {
+                if (!string.IsNullOrEmpty(e.Hash) && e.FileSize > 0)
+                {
+                    string? candidatePath = e.LocalFilePath;
+                    if (string.IsNullOrWhiteSpace(candidatePath))
+                    {
+                        var pipe = k.IndexOf('|');
+                        if (pipe >= 0 && pipe + 1 < k.Length) candidatePath = k[(pipe + 1)..];
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(candidatePath) && File.Exists(candidatePath) && !activeFileByHash.ContainsKey(e.Hash))
+                    {
+                        activeFileByHash[e.Hash] = candidatePath;
+                    }
+                }
+            }
+
             foreach (var (key, entry) in snapshot)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1917,6 +1938,38 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
                 if (!File.Exists(localPath))
                 {
+                    string? renamedTo = null;
+                    if (!string.IsNullOrEmpty(entry.Hash) && activeFileByHash.TryGetValue(entry.Hash, out var existingPath))
+                    {
+                        if (!string.Equals(existingPath, localPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            renamedTo = existingPath;
+                        }
+                    }
+
+                    // Secondary check: look for candidate sibling in same directory
+                    if (renamedTo == null && !string.IsNullOrEmpty(entry.Hash) && entry.FileSize > 0)
+                    {
+                        try
+                        {
+                            var dir = Path.GetDirectoryName(localPath);
+                            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                            {
+                                foreach (var sibling in Directory.GetFiles(dir))
+                                {
+                                    if (string.Equals(sibling, localPath, StringComparison.OrdinalIgnoreCase)) continue;
+                                    var fi = new FileInfo(sibling);
+                                    if (fi.Length == entry.FileSize && ComputeSha256(sibling).Equals(entry.Hash, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        renamedTo = sibling;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
                     orphans.Add(new DriveOrphanItem
                     {
                         HashKey = key,
@@ -1928,6 +1981,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         LastWriteTimeUtc = entry.LastWriteTimeUtcTicks > 0
                             ? new DateTime(entry.LastWriteTimeUtcTicks, DateTimeKind.Utc)
                             : null,
+                        RenamedToPath = renamedTo,
                         IsSelected = true
                     });
                 }
@@ -1992,6 +2046,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         }, cancellationToken);
     }
 
+    public const int DefaultTrashChunkSize = 25;
+
     public async Task<TrashResultSummary> TrashOrphansAsync(
         IEnumerable<DriveOrphanItem> orphans,
         CancellationToken cancellationToken = default)
@@ -2028,117 +2084,19 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         await _uploadSemaphore.WaitAsync(cancellationToken);
         try
         {
-            var fileEntries = orphanList.Select(o => new
-            {
-                fileId = o.FileId,
-                relativePath = o.DriveRelativePath
-            }).ToList();
-
-            var payload = new Dictionary<string, object?>
-            {
-                ["action"] = "trash",
-                ["files"] = fileEntries
-            };
-
-            if (!string.IsNullOrWhiteSpace(_settings.AuthToken))
-            {
-                payload["authToken"] = _settings.AuthToken.Trim();
-            }
-
-            string requestJson = JsonSerializer.Serialize(payload);
-            var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient.PostAsync(_settings.WebAppUrl, content, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                summary.ErrorCount = orphanList.Count;
-                summary.ErrorMessages.Add($"Error de red al enviar solicitud de papelera: {ex.Message}");
-                return summary;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                summary.ErrorCount = orphanList.Count;
-                summary.ErrorMessages.Add($"El servidor respondió con código HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).");
-                return summary;
-            }
-
-            var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(responseString);
-            var root = doc.RootElement;
-
-            string status = root.TryGetProperty("status", out var sProp) ? sProp.GetString() ?? "" : "";
-            if (!string.Equals(status, "success", StringComparison.OrdinalIgnoreCase))
-            {
-                string errorMsg = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? "Error desconocido en el servidor." : "Error desconocido en el servidor.";
-                summary.ErrorCount = orphanList.Count;
-                summary.ErrorMessages.Add(errorMsg);
-                return summary;
-            }
-
             var keysToPurge = new List<string>();
 
-            if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
+            // Chunk in batches of DefaultTrashChunkSize to avoid Google Apps Script execution timeout (30s limit)
+            var chunks = orphanList
+                .Select((item, index) => new { item, index })
+                .GroupBy(x => x.index / DefaultTrashChunkSize)
+                .Select(g => g.Select(x => x.item).ToList())
+                .ToList();
+
+            foreach (var chunk in chunks)
             {
-                var orphanByRelativePath = new Dictionary<string, DriveOrphanItem>(StringComparer.OrdinalIgnoreCase);
-                foreach (var orphan in orphanList)
-                {
-                    if (!string.IsNullOrEmpty(orphan.DriveRelativePath))
-                    {
-                        orphanByRelativePath[orphan.DriveRelativePath.TrimStart('/')] = orphan;
-                    }
-                }
-
-                int index = 0;
-                foreach (var item in resultsElement.EnumerateArray())
-                {
-                    string itemStatus = item.TryGetProperty("status", out var isProp) ? isProp.GetString() ?? "" : "";
-                    string relPath = item.TryGetProperty("relativePath", out var rpProp) ? rpProp.GetString() ?? "" : "";
-                    string cleanRelPath = relPath.TrimStart('/');
-
-                    DriveOrphanItem? matchingOrphan = null;
-                    if (!string.IsNullOrEmpty(cleanRelPath) && orphanByRelativePath.TryGetValue(cleanRelPath, out var found))
-                    {
-                        matchingOrphan = found;
-                    }
-                    else if (index < orphanList.Count)
-                    {
-                        matchingOrphan = orphanList[index];
-                    }
-
-                    if (string.Equals(itemStatus, "trashed", StringComparison.OrdinalIgnoreCase))
-                    {
-                        summary.SuccessfullyTrashed++;
-                        if (matchingOrphan != null)
-                        {
-                            keysToPurge.Add(matchingOrphan.HashKey);
-                        }
-                    }
-                    else if (string.Equals(itemStatus, "not_found", StringComparison.OrdinalIgnoreCase))
-                    {
-                        summary.NotFoundCount++;
-                        if (matchingOrphan != null)
-                        {
-                            keysToPurge.Add(matchingOrphan.HashKey);
-                        }
-                    }
-                    else
-                    {
-                        summary.ErrorCount++;
-                        string err = item.TryGetProperty("message", out var errProp) ? errProp.GetString() ?? "Error al procesar archivo." : "Error al procesar archivo.";
-                        summary.ErrorMessages.Add($"{relPath}: {err}");
-                    }
-
-                    index++;
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                await TrashOrphansChunkInternalAsync(chunk, summary, keysToPurge, cancellationToken);
             }
 
             if (keysToPurge.Count > 0)
@@ -2158,6 +2116,124 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         finally
         {
             _uploadSemaphore.Release();
+        }
+    }
+
+    private async Task TrashOrphansChunkInternalAsync(
+        List<DriveOrphanItem> chunk,
+        TrashResultSummary summary,
+        List<string> keysToPurge,
+        CancellationToken cancellationToken)
+    {
+        var fileEntries = chunk.Select(o => new
+        {
+            fileId = o.FileId,
+            relativePath = o.DriveRelativePath
+        }).ToList();
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["action"] = "trash",
+            ["files"] = fileEntries
+        };
+
+        if (!string.IsNullOrWhiteSpace(_settings.AuthToken))
+        {
+            payload["authToken"] = _settings.AuthToken.Trim();
+        }
+
+        string requestJson = JsonSerializer.Serialize(payload);
+        var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.PostAsync(_settings.WebAppUrl, content, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            summary.ErrorCount += chunk.Count;
+            summary.ErrorMessages.Add($"Error de red al enviar solicitud de papelera: {ex.Message}");
+            return;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            summary.ErrorCount += chunk.Count;
+            summary.ErrorMessages.Add($"El servidor respondió con código HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).");
+            return;
+        }
+
+        var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var doc = JsonDocument.Parse(responseString);
+        var root = doc.RootElement;
+
+        string status = root.TryGetProperty("status", out var sProp) ? sProp.GetString() ?? "" : "";
+        if (!string.Equals(status, "success", StringComparison.OrdinalIgnoreCase))
+        {
+            string errorMsg = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? "Error desconocido en el servidor." : "Error desconocido en el servidor.";
+            summary.ErrorCount += chunk.Count;
+            summary.ErrorMessages.Add(errorMsg);
+            return;
+        }
+
+        if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
+        {
+            var orphanByRelativePath = new Dictionary<string, DriveOrphanItem>(StringComparer.OrdinalIgnoreCase);
+            foreach (var orphan in chunk)
+            {
+                if (!string.IsNullOrEmpty(orphan.DriveRelativePath))
+                {
+                    orphanByRelativePath[orphan.DriveRelativePath.TrimStart('/')] = orphan;
+                }
+            }
+
+            int index = 0;
+            foreach (var item in resultsElement.EnumerateArray())
+            {
+                string itemStatus = item.TryGetProperty("status", out var isProp) ? isProp.GetString() ?? "" : "";
+                string relPath = item.TryGetProperty("relativePath", out var rpProp) ? rpProp.GetString() ?? "" : "";
+                string cleanRelPath = relPath.TrimStart('/');
+
+                DriveOrphanItem? matchingOrphan = null;
+                if (!string.IsNullOrEmpty(cleanRelPath) && orphanByRelativePath.TryGetValue(cleanRelPath, out var found))
+                {
+                    matchingOrphan = found;
+                }
+                else if (index < chunk.Count)
+                {
+                    matchingOrphan = chunk[index];
+                }
+
+                if (string.Equals(itemStatus, "trashed", StringComparison.OrdinalIgnoreCase))
+                {
+                    summary.SuccessfullyTrashed++;
+                    if (matchingOrphan != null)
+                    {
+                        keysToPurge.Add(matchingOrphan.HashKey);
+                    }
+                }
+                else if (string.Equals(itemStatus, "not_found", StringComparison.OrdinalIgnoreCase))
+                {
+                    summary.NotFoundCount++;
+                    if (matchingOrphan != null)
+                    {
+                        keysToPurge.Add(matchingOrphan.HashKey);
+                    }
+                }
+                else
+                {
+                    summary.ErrorCount++;
+                    string err = item.TryGetProperty("message", out var errProp) ? errProp.GetString() ?? "Error al procesar archivo." : "Error al procesar archivo.";
+                    summary.ErrorMessages.Add($"{relPath}: {err}");
+                }
+
+                index++;
+            }
         }
     }
 
@@ -2193,10 +2269,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             var unreadableDirectories = new List<string>();
             var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            var scanFilters = new SyncFilterOptions
-            {
-                MaxFileSizeBytes = long.MaxValue
-            };
+            var scanFilters = CreateFilters();
+            scanFilters.MaxFileSizeBytes = long.MaxValue;
 
             foreach (var source in EnumerateSources(onlySource))
             {

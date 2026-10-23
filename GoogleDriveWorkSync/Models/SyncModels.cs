@@ -172,6 +172,8 @@ public class DriveOrphanItem : ObservableObject
     public long FileSize { get; set; }
     public string FormattedFileSize => OutOfSyncFile.FormatBytes(FileSize);
     public DateTime? LastWriteTimeUtc { get; set; }
+    public string? RenamedToPath { get; set; }
+    public bool IsRenamed => !string.IsNullOrEmpty(RenamedToPath);
 
     private bool _isSelected = true;
     public bool IsSelected
@@ -256,6 +258,17 @@ public class SyncResultSummary
 }
 
 /// <summary>
+/// Strategy rule for determining the primary (protected) copy in a duplicate file group.
+/// </summary>
+public enum DuplicatePrimaryRule
+{
+    OldestModified,
+    NewestModified,
+    ShortestPath,
+    PreferCleanPath
+}
+
+/// <summary>
 /// Represents an individual file that is part of a duplicate group.
 /// </summary>
 public class DuplicateFileItem : ObservableObject
@@ -266,7 +279,13 @@ public class DuplicateFileItem : ObservableObject
     public long FileSize { get; set; }
     public string FormattedFileSize => OutOfSyncFile.FormatBytes(FileSize);
     public DateTime LastModified { get; set; }
-    public bool IsPrimary { get; set; }
+
+    private bool _isPrimary;
+    public bool IsPrimary
+    {
+        get => _isPrimary;
+        set => SetProperty(ref _isPrimary, value);
+    }
 
     private bool _isSelected;
     public bool IsSelected
@@ -292,6 +311,55 @@ public class DuplicateFileGroup
     /// </summary>
     public long WastedBytes => Math.Max(0, (Files.Count - 1) * FileSize);
     public string FormattedWastedBytes => OutOfSyncFile.FormatBytes(WastedBytes);
+
+    /// <summary>
+    /// Dynamically applies a primary retention rule to this group, selecting redundant copies.
+    /// </summary>
+    public void ApplyPrimaryRule(DuplicatePrimaryRule rule)
+    {
+        if (Files.Count == 0) return;
+
+        DuplicateFileItem primary = rule switch
+        {
+            DuplicatePrimaryRule.NewestModified => Files
+                .OrderByDescending(f => f.LastModified)
+                .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
+                .First(),
+            DuplicatePrimaryRule.ShortestPath => Files
+                .OrderBy(f => f.FilePath.Length)
+                .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
+                .First(),
+            DuplicatePrimaryRule.PreferCleanPath => Files
+                .OrderBy(f => IsClutteredPath(f.FilePath) ? 1 : 0)
+                .ThenBy(f => f.LastModified)
+                .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
+                .First(),
+            _ => Files // OldestModified
+                .OrderBy(f => f.LastModified)
+                .ThenBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
+                .First()
+        };
+
+        foreach (var file in Files)
+        {
+            bool isPri = ReferenceEquals(file, primary);
+            file.IsPrimary = isPri;
+            file.IsSelected = !isPri;
+        }
+    }
+
+    private static bool IsClutteredPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var normalized = path.ToLowerInvariant();
+        return normalized.Contains("copy") ||
+               normalized.Contains("copia") ||
+               normalized.Contains("backup") ||
+               normalized.Contains("bak") ||
+               normalized.Contains("temp") ||
+               normalized.Contains("tmp") ||
+               normalized.Contains("old");
+    }
 }
 
 /// <summary>
@@ -306,6 +374,17 @@ public class DuplicateScanResult
     public int TotalDuplicateFiles => Groups.Sum(g => Math.Max(0, g.Files.Count - 1));
     public long TotalWastedBytes => Groups.Sum(g => g.WastedBytes);
     public string FormattedTotalWastedBytes => OutOfSyncFile.FormatBytes(TotalWastedBytes);
+
+    /// <summary>
+    /// Re-evaluates primary files across all duplicate groups using the given rule.
+    /// </summary>
+    public void ApplyPrimaryRule(DuplicatePrimaryRule rule)
+    {
+        foreach (var group in Groups)
+        {
+            group.ApplyPrimaryRule(rule);
+        }
+    }
 }
 
 /// <summary>
