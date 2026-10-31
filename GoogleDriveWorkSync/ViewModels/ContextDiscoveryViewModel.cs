@@ -73,10 +73,48 @@ public partial class ContextDiscoveryViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSyncToDrive))]
+    [NotifyPropertyChangedFor(nameof(CanOpenTools))]
     [NotifyCanExecuteChangedFor(nameof(SyncToDriveCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceSyncAllToDriveCommand))]
     [NotifyCanExecuteChangedFor(nameof(RetryClaudeErrorsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCleanupSuggestionsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDuplicatesInspectorCommand))]
     private bool _isSyncingToDrive;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenTools))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCleanupSuggestionsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDuplicatesInspectorCommand))]
+    private bool _isBusy;
+
+    [ObservableProperty]
+    private string _busyStatusText = string.Empty;
+
+    public bool CanOpenTools => !IsBusy && !IsSyncingToDrive;
+
+    public void NotifyToolCommandsCanExecute()
+    {
+        OpenCleanupSuggestionsCommand.NotifyCanExecuteChanged();
+        OpenDuplicatesInspectorCommand.NotifyCanExecuteChanged();
+    }
+
+    public void SetBusyState(bool isBusy, string statusText = "")
+    {
+        RunOnUIThread(() =>
+        {
+            IsBusy = isBusy;
+            BusyStatusText = statusText;
+            if (isBusy && !string.IsNullOrWhiteSpace(statusText))
+            {
+                StatusMessage = statusText;
+            }
+            else if (!isBusy)
+            {
+                RefreshStatus();
+            }
+            NotifyToolCommandsCanExecute();
+        });
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SyncButtonText))]
@@ -763,13 +801,13 @@ public partial class ContextDiscoveryViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOpenTools))]
     public void OpenCleanupSuggestions()
     {
         CleanupSuggestionsRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOpenTools))]
     public void OpenDuplicatesInspector()
     {
         DuplicatesInspectorRequested?.Invoke(this, EventArgs.Empty);

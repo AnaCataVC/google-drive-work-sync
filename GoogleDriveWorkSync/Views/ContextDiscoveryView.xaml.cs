@@ -180,7 +180,8 @@ public sealed partial class ContextDiscoveryView : Page
                 () => ViewModel.DetectOrphansAsync(),
                 orphans => ViewModel.TrashOrphansAsync(orphans),
                 orphans => ViewModel.DismissOrphans(orphans),
-                dialogTitleSuffix: " (Claude)");
+                dialogTitleSuffix: " (Claude)",
+                setBusyState: (isBusy, text) => ViewModel.SetBusyState(isBusy, text));
         }
         catch (Exception ex)
         {
@@ -188,6 +189,7 @@ public sealed partial class ContextDiscoveryView : Page
         }
         finally
         {
+            ViewModel.SetBusyState(false);
             _dialogLock.Release();
         }
     }
@@ -204,7 +206,8 @@ public sealed partial class ContextDiscoveryView : Page
                 xamlRoot,
                 () => ViewModel.DetectDuplicatesAsync(),
                 (files, trash) => ViewModel.DeleteDuplicatesAsync(files, trash),
-                dialogTitleSuffix: " (Claude)");
+                dialogTitleSuffix: " (Claude)",
+                setBusyState: (isBusy, text) => ViewModel.SetBusyState(isBusy, text));
         }
         catch (Exception ex)
         {
@@ -212,6 +215,7 @@ public sealed partial class ContextDiscoveryView : Page
         }
         finally
         {
+            ViewModel.SetBusyState(false);
             _dialogLock.Release();
         }
     }

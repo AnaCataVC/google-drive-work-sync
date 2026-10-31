@@ -117,9 +117,24 @@ public static class SyncDialogHelper
         Func<Task<IReadOnlyList<DriveOrphanItem>>> detectOrphansFunc,
         Func<IEnumerable<DriveOrphanItem>, Task<TrashResultSummary>> trashOrphansFunc,
         Action<IEnumerable<DriveOrphanItem>> dismissOrphansAction,
-        string dialogTitleSuffix = "")
+        string dialogTitleSuffix = "",
+        Action<bool, string>? setBusyState = null)
     {
-        var orphans = (await detectOrphansFunc()).ToList();
+        string scanMessage = string.IsNullOrWhiteSpace(dialogTitleSuffix)
+            ? "Buscando archivos huérfanos en Google Drive..."
+            : $"Buscando archivos huérfanos{dialogTitleSuffix} en Google Drive...";
+
+        setBusyState?.Invoke(true, scanMessage);
+        List<DriveOrphanItem> orphans;
+        try
+        {
+            orphans = (await detectOrphansFunc()).ToList();
+        }
+        finally
+        {
+            setBusyState?.Invoke(false, string.Empty);
+        }
+
         if (orphans.Count == 0)
         {
             var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(0, 8, 0, 8) };
@@ -385,7 +400,17 @@ public static class SyncDialogHelper
 
             if (await confirmDialog.ShowAsync() == ContentDialogResult.Primary)
             {
-                var summary = await trashOrphansFunc(selectedOrphans);
+                setBusyState?.Invoke(true, "Moviendo archivos huérfanos a la papelera de Google Drive...");
+                TrashResultSummary summary;
+                try
+                {
+                    summary = await trashOrphansFunc(selectedOrphans);
+                }
+                finally
+                {
+                    setBusyState?.Invoke(false, string.Empty);
+                }
+
                 var outcomeDialog = new ContentDialog
                 {
                     Title = summary.Success ? "Limpieza completada" : "Resultado con advertencias",
@@ -406,6 +431,19 @@ public static class SyncDialogHelper
         else if (actionResult == ContentDialogResult.Secondary)
         {
             dismissOrphansAction(selectedOrphans);
+            var outcomeDialog = new ContentDialog
+            {
+                Title = "Seguimiento actualizado",
+                Content = new TextBlock
+                {
+                    Text = $"Se dejaron de seguir {selectedOrphans.Count} archivos. Ya no se registrarán como huérfanos localmente.",
+                    TextWrapping = TextWrapping.Wrap
+                },
+                CloseButtonText = "Aceptar",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot
+            };
+            await outcomeDialog.ShowAsync();
         }
     }
 
@@ -413,9 +451,23 @@ public static class SyncDialogHelper
         XamlRoot xamlRoot,
         Func<Task<DuplicateScanResult>> detectDuplicatesFunc,
         Func<IEnumerable<DuplicateFileItem>, bool, Task<DuplicateCleanupResultSummary>> deleteDuplicatesFunc,
-        string dialogTitleSuffix = "")
+        string dialogTitleSuffix = "",
+        Action<bool, string>? setBusyState = null)
     {
-        var scanResult = await detectDuplicatesFunc();
+        string scanMessage = string.IsNullOrWhiteSpace(dialogTitleSuffix)
+            ? "Escaneando archivos duplicados..."
+            : $"Escaneando archivos duplicados{dialogTitleSuffix}...";
+
+        setBusyState?.Invoke(true, scanMessage);
+        DuplicateScanResult scanResult;
+        try
+        {
+            scanResult = await detectDuplicatesFunc();
+        }
+        finally
+        {
+            setBusyState?.Invoke(false, string.Empty);
+        }
 
         if (scanResult.Groups.Count == 0)
         {
@@ -741,7 +793,17 @@ public static class SyncDialogHelper
 
                 if (await confirmDialog.ShowAsync() == ContentDialogResult.Primary)
                 {
-                    var summary = await deleteDuplicatesFunc(selectedFiles, true);
+                    setBusyState?.Invoke(true, "Moviendo copias duplicadas a la papelera...");
+                    DuplicateCleanupResultSummary summary;
+                    try
+                    {
+                        summary = await deleteDuplicatesFunc(selectedFiles, true);
+                    }
+                    finally
+                    {
+                        setBusyState?.Invoke(false, string.Empty);
+                    }
+
                     var outcomeDialog = new ContentDialog
                     {
                         Title = summary.Success ? "Limpieza de duplicados completada" : "Resultado con advertencias",

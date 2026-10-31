@@ -73,6 +73,47 @@ public partial class WorkSyncViewModel : ObservableObject
     private bool _isScanningOutOfSync;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenTools))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCleanupSuggestionsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDuplicatesInspectorCommand))]
+    private bool _isBusy;
+
+    [ObservableProperty]
+    private string _busyStatusText = string.Empty;
+
+    public bool CanOpenTools => !IsBusy && !IsDriveSyncing;
+
+    partial void OnIsDriveSyncingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanOpenTools));
+        NotifyToolCommandsCanExecute();
+    }
+
+    public void NotifyToolCommandsCanExecute()
+    {
+        OpenCleanupSuggestionsCommand.NotifyCanExecuteChanged();
+        OpenDuplicatesInspectorCommand.NotifyCanExecuteChanged();
+    }
+
+    public void SetBusyState(bool isBusy, string statusText = "")
+    {
+        RunOnUIThread(() =>
+        {
+            IsBusy = isBusy;
+            BusyStatusText = statusText;
+            if (isBusy && !string.IsNullOrWhiteSpace(statusText))
+            {
+                DriveSyncDetailText = statusText;
+            }
+            else if (!isBusy)
+            {
+                RefreshStatus();
+            }
+            NotifyToolCommandsCanExecute();
+        });
+    }
+
+    [ObservableProperty]
     private string _syncActionTitle = "Sincronizar desincronizados";
 
     public event EventHandler? OutOfSyncPreviewReady;
@@ -475,13 +516,13 @@ public partial class WorkSyncViewModel : ObservableObject
     }
 
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOpenTools))]
     public void OpenCleanupSuggestions()
     {
         CleanupSuggestionsRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOpenTools))]
     public void OpenDuplicatesInspector()
     {
         DuplicatesInspectorRequested?.Invoke(this, EventArgs.Empty);

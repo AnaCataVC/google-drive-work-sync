@@ -149,4 +149,65 @@ public class ActionableDuplicateCleanupTests : IDisposable
         vm.OpenDuplicatesInspectorCommand.Execute(null);
         Assert.True(duplicateFired);
     }
+
+    [Fact]
+    public void WorkSyncViewModel_SetBusyState_UpdatesStateAndDisablesToolCommands()
+    {
+        var mockDrive = new Mock<IDriveSyncService>();
+        mockDrive.Setup(d => d.Settings).Returns(new DriveSyncSettings());
+
+        var vm = new WorkSyncViewModel(mockDrive.Object);
+
+        Assert.True(vm.CanOpenTools);
+        Assert.True(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.True(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+
+        // When setting busy
+        vm.SetBusyState(true, "Escaneando archivos duplicados...");
+
+        Assert.True(vm.IsBusy);
+        Assert.Equal("Escaneando archivos duplicados...", vm.BusyStatusText);
+        Assert.False(vm.CanOpenTools);
+        Assert.False(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.False(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+
+        // When clearing busy
+        vm.SetBusyState(false);
+
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.CanOpenTools);
+        Assert.True(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.True(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ContextDiscoveryViewModel_SetBusyState_UpdatesStateAndDisablesToolCommands()
+    {
+        var mockDiscovery = new Mock<IClaudeDiscoveryService>();
+        var mockDrive = new Mock<IDriveSyncService>();
+        mockDrive.Setup(d => d.Settings).Returns(new DriveSyncSettings());
+
+        var vm = new ContextDiscoveryViewModel(mockDiscovery.Object, mockDrive.Object);
+
+        Assert.True(vm.CanOpenTools);
+        Assert.True(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.True(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+
+        // When setting busy
+        vm.SetBusyState(true, "Buscando archivos huérfanos...");
+
+        Assert.True(vm.IsBusy);
+        Assert.Equal("Buscando archivos huérfanos...", vm.BusyStatusText);
+        Assert.False(vm.CanOpenTools);
+        Assert.False(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.False(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+
+        // When clearing busy
+        vm.SetBusyState(false);
+
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.CanOpenTools);
+        Assert.True(vm.OpenCleanupSuggestionsCommand.CanExecute(null));
+        Assert.True(vm.OpenDuplicatesInspectorCommand.CanExecute(null));
+    }
 }

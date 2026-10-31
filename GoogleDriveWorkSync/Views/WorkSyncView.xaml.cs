@@ -155,7 +155,8 @@ public sealed partial class WorkSyncView : Page
                 xamlRoot,
                 () => ViewModel.DetectOrphansAsync(),
                 orphans => ViewModel.TrashOrphansAsync(orphans),
-                orphans => ViewModel.DismissOrphans(orphans));
+                orphans => ViewModel.DismissOrphans(orphans),
+                setBusyState: (isBusy, text) => ViewModel.SetBusyState(isBusy, text));
         }
         catch (Exception ex)
         {
@@ -163,6 +164,7 @@ public sealed partial class WorkSyncView : Page
         }
         finally
         {
+            ViewModel.SetBusyState(false);
             _dialogLock.Release();
         }
     }
@@ -178,7 +180,8 @@ public sealed partial class WorkSyncView : Page
             await SyncDialogHelper.ShowDuplicatesInspectorDialogAsync(
                 xamlRoot,
                 () => ViewModel.DetectDuplicatesAsync(),
-                (files, trash) => ViewModel.DeleteDuplicatesAsync(files, trash));
+                (files, trash) => ViewModel.DeleteDuplicatesAsync(files, trash),
+                setBusyState: (isBusy, text) => ViewModel.SetBusyState(isBusy, text));
         }
         catch (Exception ex)
         {
@@ -186,6 +189,7 @@ public sealed partial class WorkSyncView : Page
         }
         finally
         {
+            ViewModel.SetBusyState(false);
             _dialogLock.Release();
         }
     }

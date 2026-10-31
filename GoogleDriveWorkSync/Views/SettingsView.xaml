@@ -99,6 +99,7 @@
                                                     </StackPanel>
                                                 </StackPanel>
                                                 <Button Grid.Column="1" ToolTipService.ToolTip="Eliminar carpeta"
+                                                        AutomationProperties.Name="Eliminar carpeta de sincronización"
                                                         Tag="{x:Bind}" Click="DeleteSourceButton_Click" VerticalAlignment="Center">
                                                     <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                                                 </Button>
@@ -209,7 +210,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Button Grid.Column="0" Content="Restablecer Caché de Hashes"
-                                        Command="{x:Bind ViewModel.ClearHashIndexCommand}" />
+                                        Click="ClearHashIndexButton_Click" />
                                 <TextBlock Grid.Column="1"
                                            Text="Borra el registro local de hashes para re-evaluar todos los archivos desde cero en el próximo run."
                                            Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"

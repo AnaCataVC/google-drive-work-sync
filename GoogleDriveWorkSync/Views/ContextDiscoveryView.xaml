@@ -179,6 +179,9 @@
 
                             <!-- Secondary Dropdown -->
                             <Button Visibility="{x:Bind ViewModel.IsSyncingToDrive, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    IsEnabled="{x:Bind ViewModel.CanOpenTools, Mode=OneWay}"
+                                    AutomationProperties.Name="Opciones adicionales de Claude"
+                                    ToolTipService.ToolTip="Opciones adicionales de Claude"
                                     Padding="10,6">
                                 <FontIcon Glyph="&#xE712;" FontSize="13"/>
                                 <Button.Flyout>
@@ -257,7 +260,7 @@
                             <TextBlock Text="Archivos de contexto pendientes de sincronización" Style="{StaticResource SubtitleTextBlockStyle}" />
                             <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
                                 <TextBlock Text="{x:Bind ViewModel.OutOfSyncCandidatesCount, Mode=OneWay}"
-                                           FontSize="12" FontWeight="Bold" Foreground="White" />
+                                           FontSize="12" FontWeight="Bold" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                             </Border>
                         </StackPanel>
 
@@ -297,7 +300,7 @@
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                             <Border CornerRadius="4" Padding="8,3" VerticalAlignment="Center"
                                                     Background="{ThemeResource AccentFillColorDefaultBrush}">
-                                                <TextBlock Text="{x:Bind Reason}" FontSize="11" FontWeight="SemiBold" Foreground="White" />
+                                                <TextBlock Text="{x:Bind Reason}" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                                             </Border>
                                         </StackPanel>
                                     </Grid>
@@ -478,5 +481,31 @@
 
             </StackPanel>
         </ScrollViewer>
+
+        <!-- Busy / Loading Overlay (Nielsen #1 System Status & Modal Guardrail) -->
+        <Grid Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+              Background="{ThemeResource SmokeFillColorDefaultBrush}"
+              Grid.Row="0" Grid.RowSpan="2"
+              Margin="-28,-24"
+              Canvas.ZIndex="1000"
+              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="12" Padding="28,24"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="460" MinWidth="320">
+                <StackPanel Spacing="16" HorizontalAlignment="Center">
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="36" Height="36" HorizontalAlignment="Center" />
+                    <TextBlock Text="{x:Bind ViewModel.BusyStatusText, Mode=OneWay}"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               FontWeight="SemiBold"
+                               TextAlignment="Center" TextWrapping="Wrap" />
+                    <TextBlock Text="Por favor espera mientras se procesa la solicitud..."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Page>
