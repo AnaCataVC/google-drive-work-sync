@@ -138,7 +138,7 @@ flowchart TD
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) (incluido en el instalador autónomo)
 
 ### Instalación Rápida (Instalador Oficial)
-1. Descarga `GoogleDriveWorkSync-Setup-v1.7.1.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
+1. Descarga `GoogleDriveWorkSync-Setup-v1.8.0.exe` desde la sección de [GitHub Releases](https://github.com/AnaCataVC/google-drive-work-sync/releases).
 2. Ejecuta el instalador. Puedes marcar la opción de inicio automático con Windows si lo deseas.
 3. Inicia la aplicación desde el Menú Inicio o el Escritorio.
 
