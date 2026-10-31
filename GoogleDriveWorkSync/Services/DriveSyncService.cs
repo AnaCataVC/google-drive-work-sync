@@ -2128,7 +2128,10 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         var fileEntries = chunk.Select(o => new
         {
             fileId = o.FileId,
-            relativePath = o.DriveRelativePath
+            relativePath = o.DriveRelativePath,
+            filename = !string.IsNullOrWhiteSpace(o.FileName)
+                ? o.FileName
+                : Path.GetFileName(o.DriveRelativePath ?? string.Empty)
         }).ToList();
 
         var payload = new Dictionary<string, object?>
@@ -2178,6 +2181,18 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             string errorMsg = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? "Error desconocido en el servidor." : "Error desconocido en el servidor.";
             summary.ErrorCount += chunk.Count;
             summary.ErrorMessages.Add(errorMsg);
+            return;
+        }
+
+        // Validate that the server processed a 'trash' action rather than falling through to legacy upload
+        string returnedAction = root.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "" : "";
+        if (!string.Equals(returnedAction, "trash", StringComparison.OrdinalIgnoreCase))
+        {
+            summary.ErrorCount += chunk.Count;
+            summary.ErrorMessages.Add(
+                "El Web App de Google Apps Script es una versión desactualizada que no soporta la acción de papelera ('trash'). " +
+                "Actualiza Code.gs en script.google.com con el script de docs/google-setup-guide.md " +
+                "y despliega una 'Nueva versión' en Administrar implementaciones.");
             return;
         }
 

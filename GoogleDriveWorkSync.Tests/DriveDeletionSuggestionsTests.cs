@@ -436,6 +436,113 @@ public class DriveDeletionSuggestionsTests : IDisposable
     }
 
     [Fact]
+    public async Task TrashOrphansAsync_WhenServerReturnsLegacyResponseWithoutTrashAction_ReportsDescriptiveUpdateWarningAndRetainsKeys()
+    {
+        // Arrange: server returns success status but lacks the "action": "trash" field (legacy Web App fallback)
+        var legacyResponseJson = """
+        {
+          "status": "success",
+          "processedCount": 1,
+          "results": [
+            { "relativePath": "work/doc1.docx", "status": "error", "message": "Exception: El argumento no puede ser nulo: name" }
+          ]
+        }
+        """;
+
+        var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mockHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(legacyResponseJson, Encoding.UTF8, "application/json")
+            });
+
+        using var service = CreateService(mockHandler.Object);
+        service.UpdateSettings(new DriveSyncSettings
+        {
+            WebAppUrl = "https://script.google.com/macros/s/test/exec"
+        });
+
+        var key = "work|C:\\docs\\doc1.docx";
+        var index = GetHashIndex(service);
+        index[key] = new HashCacheEntry
+        {
+            Hash = "hash1",
+            FileId = "drive-id-1",
+            DriveRelativePath = "work/doc1.docx"
+        };
+
+        var orphans = new List<DriveOrphanItem>
+        {
+            new() { HashKey = key, FileName = "doc1.docx", FileId = "drive-id-1", DriveRelativePath = "work/doc1.docx" }
+        };
+
+        // Act
+        var summary = await service.TrashOrphansAsync(orphans);
+
+        // Assert: must detect outdated script, report actionable warning, and retain index keys
+        Assert.False(summary.Success);
+        Assert.Equal(1, summary.ErrorCount);
+        Assert.Contains(summary.ErrorMessages, msg => msg.Contains("desactualizada") && msg.Contains("Nueva versión"));
+        Assert.True(index.ContainsKey(key));
+    }
+
+    [Fact]
+    public async Task TrashOrphansAsync_TransmitsFilenameInPayload_ForDefensiveCompatibility()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        var responseJson = """
+        {
+          "status": "success",
+          "action": "trash",
+          "results": [
+            { "relativePath": "work/doc1.docx", "status": "trashed" }
+          ]
+        }
+        """;
+
+        var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mockHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, ct) => capturedRequest = req)
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+            });
+
+        using var service = CreateService(mockHandler.Object);
+        service.UpdateSettings(new DriveSyncSettings
+        {
+            WebAppUrl = "https://script.google.com/macros/s/test/exec"
+        });
+
+        var key = "work|C:\\docs\\doc1.docx";
+        var index = GetHashIndex(service);
+        index[key] = new HashCacheEntry { Hash = "h", FileId = "f1", DriveRelativePath = "work/doc1.docx" };
+
+        var orphans = new List<DriveOrphanItem>
+        {
+            new() { HashKey = key, FileName = "doc1.docx", FileId = "f1", DriveRelativePath = "work/doc1.docx" }
+        };
+
+        var summary = await service.TrashOrphansAsync(orphans);
+
+        Assert.NotNull(capturedRequest?.Content);
+        var requestBody = await capturedRequest.Content.ReadAsStringAsync();
+        using var jsonDoc = JsonDocument.Parse(requestBody);
+        var files = jsonDoc.RootElement.GetProperty("files");
+        Assert.Equal("doc1.docx", files[0].GetProperty("filename").GetString());
+    }
+
+    [Fact]
     public async Task TrashOrphansAsync_WhenResultsContainIndividualErrors_OnlyPurgesSuccessfulItems()
     {
         var responseJson = """

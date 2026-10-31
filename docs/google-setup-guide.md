@@ -153,7 +153,7 @@ function doPost(e) {
         var mimeType = fileEntry.mimeType || "application/octet-stream";
 
         // 5. Recreate subfolder hierarchy using cached folder IDs
-        var pathParts = relativePath.split("/");
+        var pathParts = relativePath.replace(/\\/g, "/").split("/");
         if (pathParts.length > 1) {
           var cacheKeyParts = [];
           for (var i = 0; i < pathParts.length - 1; i++) {
@@ -220,7 +220,8 @@ function doPost(e) {
  * Traverses folder hierarchy from rootFolderId to find a file by relative path.
  */
 function resolveFileByPath(rootFolderId, relativePath) {
-  var parts = relativePath.split('/').filter(function(p) { return p.length > 0; });
+  var normalizedPath = relativePath.replace(/\\/g, '/');
+  var parts = normalizedPath.split('/').filter(function(p) { return p.length > 0; });
   if (parts.length === 0) return null;
   var currentFolder = DriveApp.getFolderById(rootFolderId);
 
@@ -242,6 +243,8 @@ function resolveFileByPath(rootFolderId, relativePath) {
 ---
 
 ### Step 3: Deploy as a Web App
+
+#### Initial Deployment
 1. Click **Deploy** (blue button) $\rightarrow$ **New deployment**.
 2. Click the gear icon ⚙️ $\rightarrow$ **Web app**.
 3. Settings:
@@ -249,6 +252,16 @@ function resolveFileByPath(rootFolderId, relativePath) {
    - **Who has access:** `Anyone`
 4. Click **Deploy** and grant permissions if prompted.
 5. Copy the generated **Web App URL** (`https://script.google.com/macros/s/.../exec`).
+
+#### Updating an Existing Deployment (Important)
+> [!IMPORTANT]
+> If you already deployed the Web App previously, saving `Code.gs` (`Ctrl+S`) does **NOT** update the live Web App URL. You must deploy a **New version**:
+> 1. In Google Apps Script, click **Deploy** $\rightarrow$ **Manage deployments**.
+> 2. Click the active deployment $\rightarrow$ click the pencil icon ✏️ (**Edit**).
+> 3. Under **Version**, select **New version**.
+> 4. Click **Deploy**.
+> 
+> *This updates the script logic while preserving your existing Web App URL.*
 
 ---
 
