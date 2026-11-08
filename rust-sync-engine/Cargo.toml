@@ -1,0 +1,29 @@
+[package]
+name = "rust_sync_engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rust_sync_engine"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+blake3 = { version = "1.8", features = ["rayon"] }
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+pathdiff = "0.2"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"

@@ -29,3 +29,7 @@ LocalSettings.json
 sync_hashes.json
 sync_errors.json
 *.log
+
+## Rust Build Artifacts
+rust-sync-engine/target/
+**/target/

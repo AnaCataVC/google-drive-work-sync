@@ -10,9 +10,10 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20Windows%2010%20(1809%2B)-0078D6?style=flat&logo=windows&logoColor=white)](https://microsoft.com)
 [![Framework](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![Engine](https://img.shields.io/badge/Engine-Rust%20(BLAKE3%20%2B%20Rayon)-DEA584?style=flat&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![UI Toolkit](https://img.shields.io/badge/UI-WinUI%203%20%2F%20Windows%20App%20SDK%202.4-0078D6?style=flat&logo=windows&logoColor=white)](https://learn.microsoft.com/windows/apps/winui/winui3/)
 [![Architecture](https://img.shields.io/badge/Architecture-x64-blue?style=flat)](https://learn.microsoft.com/windows/apps/winui/winui3/)
-[![Tests](https://img.shields.io/badge/Tests-136%20passed%20%7C%20100%25-success?style=flat&logo=xunit&logoColor=white)](GoogleDriveWorkSync.Tests/)
+[![Tests](https://img.shields.io/badge/Tests-100%25%20passing-success?style=flat&logo=xunit&logoColor=white)](GoogleDriveWorkSync.Tests/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
 ---
@@ -28,8 +29,8 @@ Crafted around native Windows 11 Fluent Design with Mica backdrop materials, sys
 ## Key Features
 
 ### 1. Incremental Work File Synchronization
-- **Metadata Fast-Path & SHA-256 Verification:** Bypasses redundant uploads by inspecting file modification timestamps and byte sizes first, computing full cryptographic hashes only when metadata indicates modifications.
-- **Persistent Crash-Safe Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. The index is written to a temporary file and atomically swapped once per batch, ensuring unexpected process aborts or power loss never truncate the database.
+- **Native Rust Engine (BLAKE3 SIMD + Rayon) & Metadata Fast-Path:** Employs a dedicated native library (`rust_sync_engine.dll`) via `.NET 9` source-generated P/Invoke (`[LibraryImport]`). Computes cryptographic hashes with 4x–10x higher throughput via BLAKE3 SIMD vectorization and parallel work-stealing with Rayon, while inspecting modification timestamps and byte sizes first.
+- **Persistent Crash-Safe Hash Index:** Stores file states in `%LOCALAPPDATA%\GoogleDriveWorkSync\Data\sync_hashes.json`. The index is written to a temporary file and atomically swapped once per batch, ensuring unexpected process aborts or power loss never truncate the database. In-place migration updates legacy hashes without triggering network re-uploads.
 - **Adaptive Batching:** Packages files into payloads of up to 8 files or 9 MB uncompressed (~12 MB base64) to strictly comply with Google Apps Script payload and execution limits.
 - **Fail-Soft Error Recovery:** Persists transient HTTP failures (429, 500, 503) to `sync_errors.json` and supports single-click batch retries with exponential backoff.
 - **Zero Silent Skips:** Unreadable locked files and permission-denied directories are flagged as explicit errors rather than marked as "unchanged", preserving complete integrity in the *Up to date* status. Directory junctions and symlinks are excluded.

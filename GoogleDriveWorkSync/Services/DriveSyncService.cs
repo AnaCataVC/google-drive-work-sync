@@ -1618,10 +1618,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
     public string ComputeSha256(string filePath)
     {
-        using var sha256 = SHA256.Create();
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var hashBytes = sha256.ComputeHash(stream);
-        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        return NativeSyncEngine.ComputeFileHash(filePath);
     }
 
     private void ReportProgress(IProgress<SyncProgressReport>? progress, SyncProgressReport report)
@@ -1769,6 +1766,82 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             }
 
             _hashIndex = newIndex;
+            MigrateLegacyHashesInPlace();
+        }
+    }
+
+    /// <summary>
+    /// Performs an in-place migration of legacy entries to BLAKE3 using the native Rust engine (with Rayon).
+    /// Only updates files on disk whose timestamp and size match, preserving FileId and preventing full re-uploads.
+    /// </summary>
+    private void MigrateLegacyHashesInPlace()
+    {
+        if (!NativeSyncEngine.IsNativeAvailable)
+            return;
+
+        var candidates = new List<(string Key, string FilePath, HashCacheEntry Entry)>();
+        foreach (var (key, entry) in _hashIndex)
+        {
+            if (string.IsNullOrEmpty(entry.Hash) || entry.LastWriteTimeUtcTicks == 0L || entry.FileSize <= 0)
+                continue;
+
+            string? localPath = entry.LocalFilePath;
+            if (string.IsNullOrWhiteSpace(localPath))
+            {
+                var pipe = key.IndexOf('|');
+                if (pipe >= 0 && pipe + 1 < key.Length) localPath = key[(pipe + 1)..];
+            }
+
+            if (!string.IsNullOrWhiteSpace(localPath) && File.Exists(localPath))
+            {
+                candidates.Add((key, localPath, entry));
+            }
+        }
+
+        if (candidates.Count == 0) return;
+
+        // Verify metadata still matches
+        var pathsToHash = new List<string>();
+        var matchingEntries = new List<(string Key, HashCacheEntry Entry)>();
+
+        foreach (var item in candidates)
+        {
+            try
+            {
+                var fi = new FileInfo(item.FilePath);
+                if (fi.Exists && fi.Length == item.Entry.FileSize && fi.LastWriteTimeUtc.Ticks == item.Entry.LastWriteTimeUtcTicks)
+                {
+                    pathsToHash.Add(item.FilePath);
+                    matchingEntries.Add((item.Key, item.Entry));
+                }
+            }
+            catch { }
+        }
+
+        if (pathsToHash.Count == 0) return;
+
+        var batchRes = NativeSyncEngine.BatchHashFiles(pathsToHash);
+        if (batchRes?.Results != null && batchRes.Results.Count > 0)
+        {
+            bool modified = false;
+            for (int i = 0; i < batchRes.Results.Count && i < matchingEntries.Count; i++)
+            {
+                var resItem = batchRes.Results[i];
+                var (key, entry) = matchingEntries[i];
+                if (resItem.Success && !string.IsNullOrEmpty(resItem.Hash))
+                {
+                    if (!string.Equals(entry.Hash, resItem.Hash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry.Hash = resItem.Hash;
+                        modified = true;
+                    }
+                }
+            }
+
+            if (modified)
+            {
+                SaveHashIndex();
+            }
         }
     }
 
@@ -2652,19 +2725,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            byte[] buffer = new byte[16384];
-            int totalRead = 0;
-            while (totalRead < buffer.Length)
-            {
-                int read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
-                if (read == 0) break;
-                totalRead += read;
-            }
-
-            using var sha256 = SHA256.Create();
-            byte[] hashBytes = sha256.ComputeHash(buffer, 0, totalRead);
-            return (Convert.ToHexString(hashBytes).ToLowerInvariant(), totalRead);
+            return NativeSyncEngine.ComputeHeaderHash(filePath, 16384, cancellationToken);
         }
         catch (OperationCanceledException)
         {

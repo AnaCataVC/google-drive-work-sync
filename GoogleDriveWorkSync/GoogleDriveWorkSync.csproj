@@ -14,11 +14,12 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <CsWinRTAotOptimizerEnabled>false</CsWinRTAotOptimizerEnabled>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.8.0</Version>
-    <AssemblyVersion>1.8.0.0</AssemblyVersion>
-    <FileVersion>1.8.0.0</FileVersion>
+    <Version>1.9.0</Version>
+    <AssemblyVersion>1.9.0.0</AssemblyVersion>
+    <FileVersion>1.9.0.0</FileVersion>
 
     <!-- Exclude publish outputs and releases from item globs -->
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;releases\**;output\**</DefaultItemExcludes>
@@ -43,6 +44,13 @@
 
   <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
     <ProjectCapability Include="Msix" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\rust-sync-engine\target\release\rust_sync_engine.dll" Condition="Exists('..\rust-sync-engine\target\release\rust_sync_engine.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust_sync_engine.dll</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

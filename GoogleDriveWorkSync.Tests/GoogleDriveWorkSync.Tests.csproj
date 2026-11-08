@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Version>1.0.1</Version>
   </PropertyGroup>
 
@@ -16,10 +17,18 @@
     <Compile Include="..\GoogleDriveWorkSync\Helpers\DiagnosticLogger.cs" Link="Helpers\DiagnosticLogger.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\TimeSpanJsonConverter.cs" Link="Helpers\TimeSpanJsonConverter.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\WindowsRecycleBinHelper.cs" Link="Helpers\WindowsRecycleBinHelper.cs" />
+    <Compile Include="..\GoogleDriveWorkSync\Helpers\NativeSyncEngine.cs" Link="Helpers\NativeSyncEngine.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Services\Interfaces\*.cs" Link="Services\Interfaces\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\ViewModels\ContextDiscoveryViewModel.cs" Link="ViewModels\ContextDiscoveryViewModel.cs" />
     <Compile Include="..\GoogleDriveWorkSync\ViewModels\WorkSyncViewModel.cs" Link="ViewModels\WorkSyncViewModel.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\rust-sync-engine\target\release\rust_sync_engine.dll" Condition="Exists('..\rust-sync-engine\target\release\rust_sync_engine.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust_sync_engine.dll</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
