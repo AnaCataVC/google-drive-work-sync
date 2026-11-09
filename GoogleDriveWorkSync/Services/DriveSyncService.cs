@@ -1239,6 +1239,21 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         return completedItems;
     }
 
+    private static async Task<byte[]> ReadFileBytesSharedAsync(string filePath, CancellationToken token)
+    {
+        using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 81920,
+            useAsync: true);
+
+        using var ms = new MemoryStream((int)Math.Min(stream.Length, int.MaxValue));
+        await stream.CopyToAsync(ms, token);
+        return ms.ToArray();
+    }
+
     private async Task<List<BatchUploadResult>> UploadBatchAsync(
         List<UploadCandidate> batch,
         string webAppUrl,
@@ -1249,19 +1264,38 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         await _uploadSemaphore.WaitAsync(token);
         try
         {
-            var fileEntries = new List<object>(batch.Count);
-            foreach (var candidate in batch)
-            {
-                byte[] fileBytes = await File.ReadAllBytesAsync(candidate.FilePath, token);
-                string fileName = ResolveUploadName(candidate.FilePath, candidate.RelativePath);
+            var results = new BatchUploadResult?[batch.Count];
+            var uploadableIndices = new List<int>();
+            var fileEntries = new List<object>();
 
-                fileEntries.Add(new
+            for (int i = 0; i < batch.Count; i++)
+            {
+                var candidate = batch[i];
+                try
                 {
-                    filename = fileName,
-                    relativePath = candidate.RelativePath,
-                    mimeType = overrideMimeType ?? GetMimeType(fileName),
-                    data = Convert.ToBase64String(fileBytes)
-                });
+                    byte[] fileBytes = await ReadFileBytesSharedAsync(candidate.FilePath, token);
+                    string fileName = ResolveUploadName(candidate.FilePath, candidate.RelativePath);
+
+                    fileEntries.Add(new
+                    {
+                        filename = fileName,
+                        relativePath = candidate.RelativePath,
+                        mimeType = overrideMimeType ?? GetMimeType(fileName),
+                        data = Convert.ToBase64String(fileBytes)
+                    });
+                    uploadableIndices.Add(i);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    DiagnosticLogger.LogCrash("DriveSyncService_UploadBatchAsync_ReadFile", ex, $"Error al leer archivo para subida: {candidate.FilePath}");
+                    var (category, friendlyMsg) = CategorizeError(ex, candidate.FilePath);
+                    results[i] = new BatchUploadResult(false, null, friendlyMsg);
+                }
+            }
+
+            if (fileEntries.Count == 0)
+            {
+                return results.Select(r => r ?? new BatchUploadResult(false, null, "Error al preparar archivo.")).ToList();
             }
 
             var payload = new Dictionary<string, object?> { ["files"] = fileEntries };
@@ -1332,7 +1366,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         throw new Exception($"Apps Script Error: {msg}");
                     }
 
-                    var perFileResults = new List<BatchUploadResult>(batch.Count);
+                    var perFileResults = new List<BatchUploadResult>(uploadableIndices.Count);
                     if (result.TryGetProperty("results", out var resultsArray) && resultsArray.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var item in resultsArray.EnumerateArray())
@@ -1344,12 +1378,17 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         }
                     }
 
-                    if (perFileResults.Count != batch.Count)
+                    if (perFileResults.Count != uploadableIndices.Count)
                     {
                         throw new Exception("Apps Script devolvió una cantidad de resultados distinta a la cantidad de archivos enviados.");
                     }
 
-                    return perFileResults;
+                    for (int j = 0; j < uploadableIndices.Count; j++)
+                    {
+                        results[uploadableIndices[j]] = perFileResults[j];
+                    }
+
+                    return results.Select(r => r ?? new BatchUploadResult(false, null, "Error al procesar archivo.")).ToList();
                 }
                 catch (Exception ex) when (attempt < maxRetries && !token.IsCancellationRequested &&
                                            (ex is TaskCanceledException || ex is HttpRequestException))

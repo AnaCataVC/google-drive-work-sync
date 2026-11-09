@@ -346,6 +346,29 @@ public class DriveSyncServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task RunSyncAsync_ShouldReadAndSyncFileOpenWithFileShareReadWrite()
+    {
+        var syncFolder = Path.Combine(_testDir, "shared-read-source");
+        Directory.CreateDirectory(syncFolder);
+        var sharedPath = Path.Combine(syncFolder, "shared_log.jsonl");
+        File.WriteAllText(sharedPath, "line 1\n");
+
+        _service.UpdateSettings(new DriveSyncSettings
+        {
+            WebAppUrl = "https://script.google.com/test",
+            Sources = { new SyncSource { LocalFolderPath = syncFolder } },
+            OnlyModifiedOrNew = true
+        });
+
+        // Open with FileShare.ReadWrite (simulating Python writing logs/jsonl)
+        using (var writeStream = new FileStream(sharedPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+        {
+            var preview = await _service.PreviewOutOfSyncAsync();
+            Assert.Contains(preview, f => f.FileName == "shared_log.jsonl" && f.Reason != "Sin acceso");
+        }
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
