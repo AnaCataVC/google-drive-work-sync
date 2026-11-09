@@ -68,7 +68,7 @@ jobs:
           $tagVersion = "${{ github.ref_name }}".TrimStart('v')
           & $isccPath /DMyAppVersion=$tagVersion installer/GoogleDriveWorkSync.iss
 
-      - name: Package Deliverables & Checksum
+      - name: Verify Deliverable
         shell: pwsh
         run: |
           $setupExe = Get-ChildItem -Path releases -Filter "GoogleDriveWorkSync-Setup-*.exe" | Select-Object -First 1
@@ -77,14 +77,12 @@ jobs:
             exit 1
           }
           Write-Host "Found installer deliverable: $($setupExe.FullName)"
-          Get-FileHash $setupExe.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii "$($setupExe.FullName).sha256"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             releases/GoogleDriveWorkSync-Setup-*.exe
-            releases/GoogleDriveWorkSync-Setup-*.exe.sha256
           draft: false
           prerelease: false
           generate_release_notes: true

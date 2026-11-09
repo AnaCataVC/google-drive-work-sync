@@ -36,15 +36,15 @@ google-drive-work-sync/
 
 > [!IMPORTANT]
 > **Single Official Deliverable for GitHub Releases:**
-> Every release published on GitHub **MUST ALWAYS** publish the official Inno Setup installer executable along with its cryptographic SHA-256 hash:
+> Every release published on GitHub **MUST ALWAYS** publish exclusively the official Inno Setup installer executable:
 > ```text
 > GoogleDriveWorkSync-Setup-vX.Y.Z.exe
-> GoogleDriveWorkSync-Setup-vX.Y.Z.exe.sha256
 > ```
-> - **Automated Release via CI/CD**: Pushing a tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) triggers `.github/workflows/release.yml` on `windows-latest`. The workflow compiles the native Rust SIMD engine (`cargo build --release`), runs all .NET and Rust tests, publishes the self-contained WinUI 3 app, packages the installer with Inno Setup (`/DMyAppVersion=X.Y.Z`), generates `.sha256`, and publishes the GitHub Release.
+> *(GitHub natively calculates and displays the SHA-256 cryptographic checksum alongside each binary asset directly in the release interface, eliminating the need for redundant `.sha256` text attachments).*
+> - **Automated Release via CI/CD**: Pushing a tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) triggers `.github/workflows/release.yml` on `windows-latest`. The workflow compiles the native Rust SIMD engine (`cargo build --release`), runs all .NET and Rust tests, publishes the self-contained WinUI 3 app, packages the installer with Inno Setup (`/DMyAppVersion=X.Y.Z`), and publishes the GitHub Release containing only the Setup installer executable.
 > - **Inno Setup Macro Standard**: `installer/GoogleDriveWorkSync.iss` MUST define `MyAppVersion` within `#ifndef MyAppVersion` so CI CLI arguments override the version dynamically without file mutations.
-> - **Strict Prohibition on Extra Assets**: NEVER publish standalone portable executables (`.exe`), unpackaged binaries, or compressed archives (`.zip`) as GitHub Release assets. Production binaries compiled during `dotnet publish` exist strictly to be packaged into the Setup installer by Inno Setup, never as independent downloads.
-> - **Verification Gate**: Any release workflow or release agent (`ami-release-manager`) must verify with `gh release view <tag> --json assets` that only the Setup installer executable and its `.sha256` hash are uploaded. Releases containing portable/zip files or lacking the Setup executable are strictly non-compliant.
+> - **Strict Prohibition on Extra Assets**: NEVER publish standalone portable executables (`.exe`), unpackaged binaries, compressed archives (`.zip`), or redundant checksum sidecars (`.sha256`) as GitHub Release assets. Production binaries compiled during `dotnet publish` exist strictly to be packaged into the Setup installer by Inno Setup, never as independent downloads.
+> - **Verification Gate**: Any release workflow or release agent (`ami-release-manager`) must verify with `gh release view <tag> --json assets` that only the single Setup installer executable is uploaded. Releases containing portable/zip files, extra checksum attachments, or lacking the Setup executable are strictly non-compliant.
 
 ### Packaging Pipeline Specification
 1. **Version Bump Order**: Bump the version in:
@@ -69,7 +69,6 @@ google-drive-work-sync/
    - Compile Inno Setup Installer:
      ```powershell
      & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DMyAppVersion=X.Y.Z installer/GoogleDriveWorkSync.iss
-     Get-FileHash releases\GoogleDriveWorkSync-Setup-vX.Y.Z.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii releases\GoogleDriveWorkSync-Setup-vX.Y.Z.exe.sha256
      ```
 4. **Local Cleanliness**: Purge local `releases/` directory post-upload to prevent disk bloat.
 
