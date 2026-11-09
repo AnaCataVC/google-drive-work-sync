@@ -1,0 +1,41 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build & Test WinUI 3 + Rust Sync Engine
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build & Test Native Rust Engine
+        run: |
+          cd rust-sync-engine
+          cargo test --release
+          cargo build --release
+
+      - name: Run .NET Unit Tests
+        run: dotnet test GoogleDriveWorkSync.Tests/GoogleDriveWorkSync.Tests.csproj -c Release
+
+      - name: Verify App Compilation
+        run: dotnet build GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release -p:Platform=x64

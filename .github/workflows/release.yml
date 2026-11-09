@@ -1,0 +1,90 @@
+name: Release Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish WinUI 3 + Rust Engine Installer
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build & Test Native Rust Engine
+        run: |
+          cd rust-sync-engine
+          cargo test --release
+          cargo build --release
+
+      - name: Run .NET Unit Tests
+        run: dotnet test GoogleDriveWorkSync.Tests/GoogleDriveWorkSync.Tests.csproj -c Release
+
+      - name: Publish WinUI 3 App (win-x64)
+        run: |
+          dotnet publish GoogleDriveWorkSync/GoogleDriveWorkSync.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Platform=x64 `
+            -o releases/GoogleDriveWorkSync-win-x64
+
+      - name: Ensure Rust DLL is Packaged
+        shell: pwsh
+        run: |
+          $dllSrc = "rust-sync-engine\target\release\rust_sync_engine.dll"
+          $dllDest = "releases\GoogleDriveWorkSync-win-x64\rust_sync_engine.dll"
+          if (Test-Path $dllSrc) {
+            Copy-Item -Path $dllSrc -Destination $dllDest -Force
+            Write-Host "Confirmed native Rust DLL in publish directory: $dllDest"
+          }
+
+      - name: Compile Inno Setup Installer
+        shell: pwsh
+        run: |
+          $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $isccPath)) {
+            $isccPath = "C:\Program Files\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $isccPath)) {
+            Write-Error "Inno Setup compiler (ISCC.exe) not found on runner."
+            exit 1
+          }
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          & $isccPath /DMyAppVersion=$tagVersion installer/GoogleDriveWorkSync.iss
+
+      - name: Package Deliverables & Checksum
+        shell: pwsh
+        run: |
+          $setupExe = Get-ChildItem -Path releases -Filter "GoogleDriveWorkSync-Setup-*.exe" | Select-Object -First 1
+          if (-not $setupExe) {
+            Write-Error "Installer deliverable not found in releases/"
+            exit 1
+          }
+          Write-Host "Found installer deliverable: $($setupExe.FullName)"
+          Get-FileHash $setupExe.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii "$($setupExe.FullName).sha256"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            releases/GoogleDriveWorkSync-Setup-*.exe
+            releases/GoogleDriveWorkSync-Setup-*.exe.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
