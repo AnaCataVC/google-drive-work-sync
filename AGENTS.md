@@ -36,31 +36,42 @@ google-drive-work-sync/
 
 > [!IMPORTANT]
 > **Single Official Deliverable for GitHub Releases:**
-> Every release published on GitHub **MUST ALWAYS** publish **ONLY** the official Inno Setup installer executable:
+> Every release published on GitHub **MUST ALWAYS** publish the official Inno Setup installer executable along with its cryptographic SHA-256 hash:
 > ```text
 > GoogleDriveWorkSync-Setup-vX.Y.Z.exe
+> GoogleDriveWorkSync-Setup-vX.Y.Z.exe.sha256
 > ```
+> - **Automated Release via CI/CD**: Pushing a tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) triggers `.github/workflows/release.yml` on `windows-latest`. The workflow compiles the native Rust SIMD engine (`cargo build --release`), runs all .NET and Rust tests, publishes the self-contained WinUI 3 app, packages the installer with Inno Setup (`/DMyAppVersion=X.Y.Z`), generates `.sha256`, and publishes the GitHub Release.
+> - **Inno Setup Macro Standard**: `installer/GoogleDriveWorkSync.iss` MUST define `MyAppVersion` within `#ifndef MyAppVersion` so CI CLI arguments override the version dynamically without file mutations.
 > - **Strict Prohibition on Extra Assets**: NEVER publish standalone portable executables (`.exe`), unpackaged binaries, or compressed archives (`.zip`) as GitHub Release assets. Production binaries compiled during `dotnet publish` exist strictly to be packaged into the Setup installer by Inno Setup, never as independent downloads.
-> - **Verification Gate**: Any release workflow or release agent (`ami-release-manager`) must verify with `gh release view <tag> --json assets` that only the Setup installer executable is uploaded. Releases containing portable/zip files or lacking the Setup executable are strictly non-compliant.
+> - **Verification Gate**: Any release workflow or release agent (`ami-release-manager`) must verify with `gh release view <tag> --json assets` that only the Setup installer executable and its `.sha256` hash are uploaded. Releases containing portable/zip files or lacking the Setup executable are strictly non-compliant.
 
 ### Packaging Pipeline Specification
 1. **Version Bump Order**: Bump the version in:
-   - `installer/GoogleDriveWorkSync.iss` (`#define MyAppVersion "X.Y.Z"`)
+   - `installer/GoogleDriveWorkSync.iss` (`#ifndef MyAppVersion #define MyAppVersion "X.Y.Z" #endif`)
    - `GoogleDriveWorkSync/GoogleDriveWorkSync.csproj` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`)
-2. **Publish Self-Contained Deployment**:
+2. **Automated Remote Release (Recommended)**:
    ```powershell
-   dotnet publish GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release -r win-x64 --self-contained true -o releases/GoogleDriveWorkSync-win-x64
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   gh run watch (gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
    ```
-3. **Compile Inno Setup Installer**:
-   ```powershell
-   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/GoogleDriveWorkSync.iss
-   ```
-   *Target output: `releases/GoogleDriveWorkSync-Setup-vX.Y.Z.exe`.*
-4. **Release Asset Upload**:
-   ```powershell
-   gh release upload vX.Y.Z "releases/GoogleDriveWorkSync-Setup-vX.Y.Z.exe" --clobber
-   ```
-5. **Local Cleanliness**: Purge local `releases/` directory post-upload to prevent disk bloat.
+3. **Local Compilation & Packaging (Fallback)**:
+   - Build native Rust engine:
+     ```powershell
+     cd rust-sync-engine; cargo build --release; cd ..
+     ```
+   - Publish Self-Contained Deployment:
+     ```powershell
+     dotnet publish GoogleDriveWorkSync/GoogleDriveWorkSync.csproj -c Release -r win-x64 --self-contained true -o releases/GoogleDriveWorkSync-win-x64
+     Copy-Item "rust-sync-engine\target\release\rust_sync_engine.dll" "releases\GoogleDriveWorkSync-win-x64\" -Force
+     ```
+   - Compile Inno Setup Installer:
+     ```powershell
+     & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DMyAppVersion=X.Y.Z installer/GoogleDriveWorkSync.iss
+     Get-FileHash releases\GoogleDriveWorkSync-Setup-vX.Y.Z.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii releases\GoogleDriveWorkSync-Setup-vX.Y.Z.exe.sha256
+     ```
+4. **Local Cleanliness**: Purge local `releases/` directory post-upload to prevent disk bloat.
 
 ---
 
