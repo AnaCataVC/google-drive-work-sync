@@ -114,10 +114,10 @@ function doPost(e) {
               targetFile.setTrashed(true);
               trashResults.push({ relativePath: relativePath, fileId: fileId, status: "trashed" });
             } else {
-              trashResults.push({ relativePath: relativePath, fileId: fileId, status: "already_trashed" });
+              trashResults.push({ relativePath: relativePath, fileId: fileId, status: "already_trashed", message: "El archivo ya se encontraba en la papelera." });
             }
           } else {
-            trashResults.push({ relativePath: relativePath, fileId: fileId, status: "not_found" });
+            trashResults.push({ relativePath: relativePath, fileId: fileId, status: "not_found", message: "El archivo no fue encontrado en Drive." });
           }
         } catch (trashErr) {
           trashResults.push({

@@ -34,6 +34,11 @@ The same exception occurred across all selected items, preventing remote files f
 - Windows environments produce paths with backslashes (`\`), whereas Google Drive folder hierarchies require forward slashes (`/`).
 - If relative paths containing backslashes were split using `relativePath.split('/')`, the entire path was treated as a single token, failing folder hierarchy traversal.
 
+### 4. Unhandled `already_trashed` Server Status
+- When a file was previously sent to Google Drive Trash (or removed via Drive UI), Apps Script returns `{ status: "already_trashed" }` without a `message` property.
+- The desktop client only recognized `"trashed"` and `"not_found"`. Unrecognized statuses fell through to the error branch, where the absence of a `message` property defaulted to `"Error al procesar archivo."`.
+- Consequently, files already in the trash were reported as errors, preventing their hash keys from being purged from `sync_hashes.json` and trapping the user in an unresolvable orphan loop.
+
 ---
 
 ## Solutions & Defenses Implemented
@@ -66,3 +71,6 @@ var parts = normalizedPath.split('/').filter(function(p) { return p.length > 0; 
 
 ### 4. Comprehensive Deployment Documentation
 Updated `docs/google-setup-guide.md` with an explicit "Updating an Existing Deployment" guide highlighting the mandatory "New version" step in Apps Script.
+
+### 5. First-Class Support for `already_trashed` Status
+The desktop client now explicitly handles `already_trashed` in `DriveSyncService.cs`, increments `AlreadyTrashedCount`, and immediately purges the corresponding hash key from `_hashIndex`. `SyncDialogHelper` reports files that were already in the trash as completed operations rather than errors.

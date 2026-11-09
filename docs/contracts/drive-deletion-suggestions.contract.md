@@ -139,12 +139,13 @@ public interface IDriveSyncService
     "action": "trash",
     "results": [
       { "relativePath": "...", "status": "trashed" },
+      { "relativePath": "...", "status": "already_trashed" },
       { "relativePath": "...", "status": "not_found" }
     ]
   }
   ```
-- **Then** `SuccessfullyTrashed` MUST equal 1, `NotFoundCount` MUST equal 1, and `ErrorCount` MUST equal 0.
-- **And** the keys for both `trashed` and `not_found` items MUST be purged from `_hashIndex`.
+- **Then** `SuccessfullyTrashed` MUST equal 1, `AlreadyTrashedCount` MUST equal 1, `NotFoundCount` MUST equal 1, and `ErrorCount` MUST equal 0.
+- **And** the keys for `trashed`, `already_trashed`, and `not_found` items MUST be purged from `_hashIndex`.
 - **And** the updated hash index MUST be persisted atomically to disk.
 
 ### Acceptance Criterion 3: Trashing Error Resilience

@@ -2305,6 +2305,14 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                         keysToPurge.Add(matchingOrphan.HashKey);
                     }
                 }
+                else if (string.Equals(itemStatus, "already_trashed", StringComparison.OrdinalIgnoreCase))
+                {
+                    summary.AlreadyTrashedCount++;
+                    if (matchingOrphan != null)
+                    {
+                        keysToPurge.Add(matchingOrphan.HashKey);
+                    }
+                }
                 else if (string.Equals(itemStatus, "not_found", StringComparison.OrdinalIgnoreCase))
                 {
                     summary.NotFoundCount++;
@@ -2637,7 +2645,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
             if (orphansToTrash.Count > 0)
             {
                 var trashResult = await TrashOrphansAsync(orphansToTrash, cancellationToken);
-                summary.DriveFilesTrashed = trashResult.SuccessfullyTrashed;
+                summary.DriveFilesTrashed = trashResult.SuccessfullyTrashed + trashResult.AlreadyTrashedCount;
                 if (trashResult.ErrorMessages.Count > 0)
                 {
                     summary.ErrorMessages.AddRange(trashResult.ErrorMessages);

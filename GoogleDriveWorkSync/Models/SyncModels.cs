@@ -190,6 +190,7 @@ public class TrashResultSummary
 {
     public int TotalRequested { get; set; }
     public int SuccessfullyTrashed { get; set; }
+    public int AlreadyTrashedCount { get; set; }
     public int NotFoundCount { get; set; }
     public int ErrorCount { get; set; }
     public List<string> ErrorMessages { get; set; } = new();

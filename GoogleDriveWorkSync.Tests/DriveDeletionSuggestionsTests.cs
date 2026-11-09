@@ -337,6 +337,71 @@ public class DriveDeletionSuggestionsTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task TrashOrphansAsync_WhenServerReturnsAlreadyTrashed_PurgesKeyAndIncrementsAlreadyTrashedCount()
+    {
+        var responseJson = """
+        {
+          "status": "success",
+          "action": "trash",
+          "results": [
+            { "relativePath": "work/doc1.docx", "status": "already_trashed" }
+          ]
+        }
+        """;
+
+        var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mockHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+            });
+
+        using var service = CreateService(mockHandler.Object);
+        service.UpdateSettings(new DriveSyncSettings
+        {
+            WebAppUrl = "https://script.google.com/macros/s/test-app/exec",
+            AuthToken = "token-xyz"
+        });
+
+        var key1 = "work|C:\\test\\doc1.docx";
+        var entry1 = new HashCacheEntry
+        {
+            Hash = "hash1",
+            FileId = "drive-id-1",
+            DriveRelativePath = "work/doc1.docx"
+        };
+
+        var index = GetHashIndex(service);
+        index[key1] = entry1;
+
+        var orphans = new List<DriveOrphanItem>
+        {
+            new DriveOrphanItem
+            {
+                HashKey = key1,
+                DriveRelativePath = "work/doc1.docx",
+                FileId = "drive-id-1",
+                FileName = "doc1.docx"
+            }
+        };
+
+        var summary = await service.TrashOrphansAsync(orphans);
+
+        Assert.Equal(1, summary.TotalRequested);
+        Assert.Equal(0, summary.SuccessfullyTrashed);
+        Assert.Equal(1, summary.AlreadyTrashedCount);
+        Assert.Equal(0, summary.NotFoundCount);
+        Assert.Equal(0, summary.ErrorCount);
+        Assert.True(summary.Success);
+        Assert.False(index.ContainsKey(key1));
+    }
+
     #endregion
 
     #region Acceptance Criterion 3: Trashing Error Resilience

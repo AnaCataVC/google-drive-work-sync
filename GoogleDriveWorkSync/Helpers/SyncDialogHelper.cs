@@ -411,14 +411,34 @@ public static class SyncDialogHelper
                     setBusyState?.Invoke(false, string.Empty);
                 }
 
+                var messages = new List<string>();
+                if (summary.SuccessfullyTrashed > 0)
+                {
+                    messages.Add($"Se enviaron {summary.SuccessfullyTrashed} archivos a la papelera de Drive.");
+                }
+                if (summary.AlreadyTrashedCount > 0)
+                {
+                    messages.Add($"{summary.AlreadyTrashedCount} archivos ya se encontraban en la papelera de Drive.");
+                }
+                if (summary.NotFoundCount > 0)
+                {
+                    messages.Add($"{summary.NotFoundCount} archivos ya no existían en Drive.");
+                }
+                if (messages.Count == 0 && summary.ErrorCount == 0)
+                {
+                    messages.Add("No se requirieron cambios en la papelera de Drive.");
+                }
+                if (summary.ErrorCount > 0)
+                {
+                    messages.Add($"Errores: {string.Join(", ", summary.ErrorMessages)}");
+                }
+
                 var outcomeDialog = new ContentDialog
                 {
                     Title = summary.Success ? "Limpieza completada" : "Resultado con advertencias",
                     Content = new TextBlock
                     {
-                        Text = $"Se enviaron {summary.SuccessfullyTrashed} archivos a la papelera de Drive.\n" +
-                               (summary.NotFoundCount > 0 ? $"{summary.NotFoundCount} archivos ya no existían en Drive.\n" : "") +
-                               (summary.ErrorCount > 0 ? $"Errores: {string.Join(", ", summary.ErrorMessages)}" : ""),
+                        Text = string.Join("\n", messages),
                         TextWrapping = TextWrapping.Wrap
                     },
                     CloseButtonText = "Aceptar",
