@@ -84,7 +84,7 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         {
             projectSegment = Path.GetFileName(candidate.RepositoryRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         }
-        else if (candidate.Category != ClaudeDiscoveryCategory.Context)
+        else if (candidate.Category != ClaudeDiscoveryCategory.Context && candidate.Category != ClaudeDiscoveryCategory.ProjectSetting)
         {
             projectSegment = string.IsNullOrWhiteSpace(claudeConfigBucket) ? "_claude-config" : claudeConfigBucket.Trim();
         }
@@ -113,7 +113,7 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         var homeAlreadyCoveredByRoot = string.Equals(Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(_homeDirectory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
         if (!homeAlreadyCoveredByRoot && Directory.Exists(homeClaudeDir))
         {
-            CollectFromDotClaudeDir(homeClaudeDir, directCandidates, categoryByPath, explicitRelativePath);
+            CollectFromDotClaudeDir(homeClaudeDir, directCandidates, categoryByPath, explicitRelativePath, isHomeClaude: true);
         }
 
         var homeClaudeJson = Path.Combine(_homeDirectory, ".claude.json");
@@ -159,7 +159,8 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
 
                 if (Directory.Exists(dotClaudeDir))
                 {
-                    CollectFromDotClaudeDir(dotClaudeDir, directCandidates, categoryByPath, explicitRelativePath);
+                    bool isHome = string.Equals(Path.GetFullPath(dotClaudeDir).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(homeClaudeDir).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+                    CollectFromDotClaudeDir(dotClaudeDir, directCandidates, categoryByPath, explicitRelativePath, isHomeClaude: isHome);
                 }
             }
             catch { }
@@ -436,7 +437,8 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         string dotClaudeDir,
         List<string> directCandidates,
         Dictionary<string, string> categoryByPath,
-        Dictionary<string, string> explicitRelativePath)
+        Dictionary<string, string> explicitRelativePath,
+        bool isHomeClaude)
     {
         var dotClaudeFile = Path.Combine(dotClaudeDir, "CLAUDE.md");
         if (File.Exists(dotClaudeFile) && IsCandidateAllowed(dotClaudeFile))
@@ -459,9 +461,17 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         CollectCategoryFiles(dotClaudeDir, "hooks", 1, ClaudeDiscoveryCategory.Hook, IsHookScriptAllowed, directCandidates, categoryByPath, explicitRelativePath);
         CollectCategoryFiles(dotClaudeDir, "mods", 4, ClaudeDiscoveryCategory.Mod, IsModFileAllowed, directCandidates, categoryByPath, explicitRelativePath);
 
-        CollectSingleFile(dotClaudeDir, "settings.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
-        CollectSingleFile(dotClaudeDir, "settings.local.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
-        CollectSingleFile(dotClaudeDir, "keybindings.json", ClaudeDiscoveryCategory.Keybinding, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath);
+        if (isHomeClaude)
+        {
+            CollectSingleFile(dotClaudeDir, "settings.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath, setExplicitRelativePath: true);
+            CollectSingleFile(dotClaudeDir, "settings.local.json", ClaudeDiscoveryCategory.GlobalSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath, setExplicitRelativePath: true);
+            CollectSingleFile(dotClaudeDir, "keybindings.json", ClaudeDiscoveryCategory.Keybinding, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath, setExplicitRelativePath: true);
+        }
+        else
+        {
+            CollectSingleFile(dotClaudeDir, "settings.json", ClaudeDiscoveryCategory.ProjectSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath, setExplicitRelativePath: false);
+            CollectSingleFile(dotClaudeDir, "settings.local.json", ClaudeDiscoveryCategory.ProjectSetting, IsJsonConfigAllowed, directCandidates, categoryByPath, explicitRelativePath, setExplicitRelativePath: false);
+        }
     }
 
     public static bool ExtractSanitizedMcpConfig(string claudeJsonPath, string outputPath)
@@ -574,14 +584,18 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         Func<string, bool> isAllowed,
         List<string> directCandidates,
         Dictionary<string, string> categoryByPath,
-        Dictionary<string, string> explicitRelativePath)
+        Dictionary<string, string> explicitRelativePath,
+        bool setExplicitRelativePath)
     {
         var filePath = Path.Combine(dotClaudeDir, fileName);
         if (!File.Exists(filePath) || !isAllowed(filePath)) return;
 
         directCandidates.Add(filePath);
         categoryByPath[filePath] = category;
-        explicitRelativePath[filePath] = fileName;
+        if (setExplicitRelativePath)
+        {
+            explicitRelativePath[filePath] = fileName;
+        }
     }
 
     private static void CollectCategoryFiles(

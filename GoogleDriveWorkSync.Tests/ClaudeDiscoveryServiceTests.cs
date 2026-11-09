@@ -342,4 +342,35 @@ public class ClaudeDiscoveryServiceTests : IDisposable
         string drivePath = service.BuildDriveRelativePath(modCandidates.First(c => c.RelativePath == "mods/child-sessions/hooks/register.tsx"));
         Assert.Equal("claude-md-unversioned/_claude-config/mods/child-sessions/hooks/register.tsx", drivePath);
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_DistinguishesHomeSettingsFromSubprojectSettings()
+    {
+        // Global home settings
+        string homeClaude = Path.Combine(_fakeHomeDir, ".claude");
+        Directory.CreateDirectory(homeClaude);
+        File.WriteAllText(Path.Combine(homeClaude, "settings.local.json"), "{\"global\": true}");
+
+        // Subproject settings in a workspace (not git repo)
+        string subprojectClaude = Path.Combine(_tempDir, "workspace", ".claude");
+        Directory.CreateDirectory(subprojectClaude);
+        File.WriteAllText(Path.Combine(subprojectClaude, "settings.local.json"), "{\"project\": true}");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_tempDir, maxDepth: 3);
+
+        var settings = report.Candidates.Where(c => c.FilePath.EndsWith("settings.local.json")).ToList();
+        Assert.Equal(2, settings.Count);
+
+        var globalSetting = settings.First(s => s.FilePath.StartsWith(_fakeHomeDir));
+        var projectSetting = settings.First(s => s.FilePath.StartsWith(_tempDir));
+
+        Assert.Equal(ClaudeDiscoveryCategory.GlobalSetting, globalSetting.Category);
+        Assert.Equal("settings.local.json", globalSetting.RelativePath);
+        Assert.Equal("claude-md-unversioned/_claude-config/settings.local.json", service.BuildDriveRelativePath(globalSetting));
+
+        Assert.Equal(ClaudeDiscoveryCategory.ProjectSetting, projectSetting.Category);
+        Assert.Equal("workspace/.claude/settings.local.json", projectSetting.RelativePath.Replace('\\', '/'));
+        Assert.Equal("claude-md-unversioned/_sin-repo/workspace/.claude/settings.local.json", service.BuildDriveRelativePath(projectSetting));
+    }
 }
