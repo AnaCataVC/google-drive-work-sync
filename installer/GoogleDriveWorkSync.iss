@@ -3,7 +3,9 @@
 ; Architecture: Windows x64 (Unpackaged WinUI 3)
 
 #define MyAppName "Google Drive Work Sync"
+#ifndef MyAppVersion
 #define MyAppVersion "1.9.0"
+#endif
 #define MyAppPublisher "AnaCataVC"
 #define MyAppURL "https://github.com/AnaCataVC/google-drive-work-sync"
 #define MyAppExeName "GoogleDriveWorkSync.exe"
