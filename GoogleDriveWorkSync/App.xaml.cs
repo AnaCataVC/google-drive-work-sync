@@ -56,6 +56,7 @@ public partial class App : Application
                     services.AddSingleton<WorkSyncViewModel>();
                     services.AddSingleton<ContextDiscoveryViewModel>();
                     services.AddTransient<SettingsViewModel>();
+                    services.AddSingleton<RestoreViewModel>();
                 })
                 .Build();
             LogTrace("Host built successfully");

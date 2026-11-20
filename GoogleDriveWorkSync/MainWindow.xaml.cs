@@ -94,6 +94,9 @@ public sealed partial class MainWindow : Window
                 case "ContextDiscovery":
                     ContentFrame.Navigate(typeof(ContextDiscoveryView));
                     break;
+                case "Restore":
+                    ContentFrame.Navigate(typeof(RestoreView));
+                    break;
                 case "Settings":
                     ContentFrame.Navigate(typeof(SettingsView));
                     break;

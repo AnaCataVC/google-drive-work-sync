@@ -85,6 +85,17 @@ public interface IDriveSyncService
         IEnumerable<ClaudeDiscoveryCandidate> candidates,
         CancellationToken cancellationToken = default);
 
+    // Restore from Drive
+    Task<RemoteListResult> ListRemoteFilesAsync(CancellationToken cancellationToken = default);
+
+    IReadOnlyList<RestorePlanItem> BuildRestorePlan(IEnumerable<RemoteDriveItem> remoteItems, string? alternateRoot = null);
+
+    Task<RestoreResultSummary> RestoreFilesAsync(
+        IEnumerable<RestorePlanItem> planItems,
+        bool overwriteExisting,
+        IProgress<SyncProgressReport>? progress = null,
+        CancellationToken cancellationToken = default);
+
     // Actionable duplicate file cleanup (Windows Recycle Bin + Google Drive Trash)
     Task<DuplicateCleanupResultSummary> DeleteDuplicateFilesAsync(
         IEnumerable<DuplicateFileItem> filesToPurge,

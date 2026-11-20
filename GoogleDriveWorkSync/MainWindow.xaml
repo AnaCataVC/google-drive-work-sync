@@ -67,6 +67,7 @@
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Archivos de Trabajo" Tag="WorkSync" Icon="Folder" />
                 <NavigationViewItem Content="Contexto IA (Claude)" Tag="ContextDiscovery" Icon="Find" />
+                <NavigationViewItem Content="Restaurar" Tag="Restore" Icon="Download" />
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>

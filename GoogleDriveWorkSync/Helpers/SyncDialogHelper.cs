@@ -112,6 +112,47 @@ public static class SyncDialogHelper
         }
     }
 
+    public static async Task ShowRestoreResultDialogAsync(XamlRoot xamlRoot, RestoreResultSummary summary)
+    {
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"Restaurados: {summary.Restored} • Omitidos: {summary.Skipped} • Errores: {summary.Errors}",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+
+        AddMessageSection(stack, "Errores", summary.ErrorMessages, "SystemFillColorCriticalBrush");
+        AddMessageSection(stack, "Omitidos", summary.SkippedMessages, "TextFillColorSecondaryBrush");
+
+        var dialog = new ContentDialog
+        {
+            Title = summary.Success ? "Restauración completada" : "Restauración con errores",
+            Content = new ScrollViewer { MaxHeight = 380, Content = stack },
+            CloseButtonText = "Cerrar",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = xamlRoot
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private static void AddMessageSection(StackPanel stack, string header, IReadOnlyList<string> messages, string brushKey)
+    {
+        if (messages.Count == 0) return;
+
+        stack.Children.Add(new TextBlock { Text = header, Margin = new Thickness(0, 8, 0, 0), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        foreach (var message in messages)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources[brushKey]
+            });
+        }
+    }
+
     public static async Task ShowCleanupSuggestionsDialogAsync(
         XamlRoot xamlRoot,
         Func<Task<IReadOnlyList<DriveOrphanItem>>> detectOrphansFunc,
