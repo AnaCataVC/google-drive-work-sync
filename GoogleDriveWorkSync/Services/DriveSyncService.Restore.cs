@@ -460,11 +460,7 @@ public partial class DriveSyncService
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    foreach (var pending in batches.Skip(b).SelectMany(x => x))
-                    {
-                        summary.Skipped++;
-                        summary.SkippedMessages.Add($"{pending.Remote.RelativePath}: restauración cancelada por el usuario.");
-                    }
+                    MarkCancelled(batches.Skip(b).SelectMany(x => x), summary);
                     break;
                 }
 
@@ -485,11 +481,7 @@ public partial class DriveSyncService
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    foreach (var pending in batches.Skip(b).SelectMany(x => x))
-                    {
-                        summary.Skipped++;
-                        summary.SkippedMessages.Add($"{pending.Remote.RelativePath}: restauración cancelada por el usuario.");
-                    }
+                    MarkCancelled(batches.Skip(b).SelectMany(x => x), summary);
                     break;
                 }
                 finally
@@ -546,7 +538,11 @@ public partial class DriveSyncService
 
             foreach (var item in batch)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    MarkCancelled(new[] { item }, summary);
+                    continue;
+                }
 
                 if (!resultsByFileId.TryGetValue(item.Remote.FileId, out var result))
                 {
@@ -596,6 +592,15 @@ public partial class DriveSyncService
 
                 summary.Restored++;
             }
+        }
+    }
+
+    private static void MarkCancelled(IEnumerable<RestorePlanItem> items, RestoreResultSummary summary)
+    {
+        foreach (var item in items)
+        {
+            summary.Skipped++;
+            summary.SkippedMessages.Add($"{item.Remote.RelativePath}: restauración cancelada por el usuario.");
         }
     }
 

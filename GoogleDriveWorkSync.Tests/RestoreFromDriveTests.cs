@@ -303,6 +303,43 @@ public class RestoreFromDriveTests : IDisposable
     }
 
     [Fact]
+    public async Task RestoreFilesAsync_MidBatchCancellation_DoesNotDoubleCountProcessedItems()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            WriteLocal(Path.Combine("source", $"f{i}.txt"), "old");
+            _handler.Files[$"id-{i}"] = ($"work/f{i}.txt", Encoding.UTF8.GetBytes($"new-{i}"));
+        }
+
+        using var cts = new CancellationTokenSource();
+        _service.RecycleFile = path =>
+        {
+            File.Delete(path);
+            if (_recycled.Count == 0)
+            {
+                _recycled.Add(path);
+                cts.Cancel();
+            }
+            return null;
+        };
+
+        var plan = _service.BuildRestorePlan(new[]
+        {
+            Remote("work/f0.txt", "id-0"),
+            Remote("work/f1.txt", "id-1"),
+            Remote("work/f2.txt", "id-2")
+        });
+
+        var summary = await _service.RestoreFilesAsync(plan, overwriteExisting: true, cancellationToken: cts.Token);
+
+        Assert.Equal(3, summary.TotalRequested);
+        Assert.Equal(1, summary.Restored);
+        Assert.Equal(2, summary.Skipped);
+        Assert.Equal(0, summary.Errors);
+        Assert.Equal(summary.TotalRequested, summary.Restored + summary.Skipped + summary.Errors);
+    }
+
+    [Fact]
     public async Task OutdatedScript_ListAndDownload_ReturnDiagnostic()
     {
         _handler.Outdated = true;
