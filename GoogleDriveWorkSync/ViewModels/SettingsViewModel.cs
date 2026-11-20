@@ -45,6 +45,9 @@ public partial class SettingsViewModel : ObservableObject
     private string _driveExcludedFolders = "node_modules, .git, bin, obj, .vs, temp";
 
     [ObservableProperty]
+    private string _driveExcludedPatterns = string.Empty;
+
+    [ObservableProperty]
     private double _driveMaxFileSizeMb = 20;
 
     [ObservableProperty]
@@ -145,6 +148,7 @@ public partial class SettingsViewModel : ObservableObject
             DriveIncludedExtensions = s.IncludedExtensions;
             DriveExcludedExtensions = s.ExcludedExtensions;
             DriveExcludedFolders = s.ExcludedFolders;
+            DriveExcludedPatterns = s.ExcludedPatterns;
             DriveMaxFileSizeMb = s.MaxFileSizeMb;
             DriveOnlyModifiedOrNew = s.OnlyModifiedOrNew;
             ClaudeDestinationPrefix = s.ClaudeDestinationPrefix;
@@ -193,6 +197,7 @@ public partial class SettingsViewModel : ObservableObject
         s.IncludedExtensions = DriveIncludedExtensions;
         s.ExcludedExtensions = DriveExcludedExtensions;
         s.ExcludedFolders = DriveExcludedFolders;
+        s.ExcludedPatterns = DriveExcludedPatterns;
         s.MaxFileSizeMb = (long)DriveMaxFileSizeMb;
         s.OnlyModifiedOrNew = DriveOnlyModifiedOrNew;
         s.ClaudeDestinationPrefix = ClaudeDestinationPrefix.Trim();

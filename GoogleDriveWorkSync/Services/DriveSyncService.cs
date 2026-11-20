@@ -19,7 +19,7 @@ namespace GoogleDriveWorkSync.Services;
 /// Supports batching up to 8 files / 9 MB, SHA-256 caching with fast-path metadata, retry with backoff,
 /// read-only preview of out-of-sync files, and shared hash index for work files and Claude context.
 /// </summary>
-public class DriveSyncService : IDriveSyncService, IDisposable
+public partial class DriveSyncService : IDriveSyncService, IDisposable
 {
     private const string SettingsKey = "DriveSyncSettings";
     public static readonly string DefaultDataDirectory = Path.Combine(
@@ -1452,17 +1452,21 @@ public class DriveSyncService : IDriveSyncService, IDisposable
     /// Scans a folder breadth-first. Directory links (junctions, symlinks) are not followed, since they
     /// can form cycles. Directories that cannot be read are added to <paramref name="unreadableDirectories"/>
     /// so the caller can report them instead of treating their contents as synced.
+    /// Glob exclusion patterns (settings plus the root's <c>.syncignore</c>) prune excluded directories
+    /// without descending into them, so excluded files are never uploaded, previewed or hashed.
     /// </summary>
     public List<LocalFileMetadata> ScanFolder(
         string rootFolderPath,
         SyncFilterOptions? filters = null,
-        List<string>? unreadableDirectories = null)
+        List<string>? unreadableDirectories = null,
+        GlobPatternMatcher? excludePatterns = null)
     {
         var results = new List<LocalFileMetadata>();
         if (string.IsNullOrWhiteSpace(rootFolderPath) || !Directory.Exists(rootFolderPath))
             return results;
 
         filters ??= new SyncFilterOptions();
+        excludePatterns ??= GlobPatternMatcher.ForRoot(_settings.ExcludedPatterns, rootFolderPath);
         var directoriesQueue = new Queue<string>();
         directoriesQueue.Enqueue(rootFolderPath);
 
@@ -1477,7 +1481,8 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 {
                     var dirInfo = new DirectoryInfo(subDir);
                     if (!filters.IsFolderExcluded(dirInfo.Name) &&
-                        !dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                        !dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint) &&
+                        !excludePatterns.IsExcluded(ToScanRelativePath(rootFolderPath, subDir), isDirectory: true))
                     {
                         directoriesQueue.Enqueue(subDir);
                     }
@@ -1496,6 +1501,10 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 {
                     try
                     {
+                        var relativePath = Path.GetRelativePath(rootFolderPath, file);
+                        if (excludePatterns.IsExcluded(relativePath.Replace('\\', '/'), isDirectory: false))
+                            continue;
+
                         var fileInfo = new FileInfo(file);
                         if (filters.ShouldIncludeFile(fileInfo, out _))
                         {
@@ -1503,7 +1512,7 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                             {
                                 FilePath = file,
                                 FileName = fileInfo.Name,
-                                RelativePath = Path.GetRelativePath(rootFolderPath, file),
+                                RelativePath = relativePath,
                                 FileSize = fileInfo.Length,
                                 Hash = string.Empty
                             });
@@ -1520,6 +1529,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
 
         return results;
     }
+
+    private static string ToScanRelativePath(string rootFolderPath, string fullPath) =>
+        Path.GetRelativePath(rootFolderPath, fullPath).Replace('\\', '/');
 
     private IEnumerable<SyncSource> EnumerateSources(SyncSource? onlySource = null)
     {
@@ -2108,6 +2120,9 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         var activeSources = _settings.Sources
             .Where(s => !string.IsNullOrWhiteSpace(s.LocalFolderPath))
             .ToList();
+        var matchersBySource = activeSources.ToDictionary(
+            s => s,
+            s => GlobPatternMatcher.ForRoot(_settings.ExcludedPatterns, s.LocalFolderPath));
 
         return DetectOrphansInternalAsync((key, entry) =>
         {
@@ -2122,6 +2137,13 @@ public class DriveSyncService : IDriveSyncService, IDisposable
                 string.Equals(s.DestinationPrefix, prefix, StringComparison.OrdinalIgnoreCase));
 
             if (matchedSource == null) return (false, string.Empty, string.Empty);
+
+            // A file the user now excludes is intentionally out of scope, not deleted: never suggest trashing it.
+            if (IsInsideRoot(localPath, matchedSource.LocalFolderPath) &&
+                matchersBySource[matchedSource].IsExcluded(ToScanRelativePath(matchedSource.LocalFolderPath, localPath), isDirectory: false))
+            {
+                return (false, string.Empty, string.Empty);
+            }
 
             string fileName = Path.GetFileName(localPath);
             string driveRelativePath = !string.IsNullOrWhiteSpace(entry.DriveRelativePath)
@@ -2139,11 +2161,19 @@ public class DriveSyncService : IDriveSyncService, IDisposable
         string claudePrefix = string.IsNullOrWhiteSpace(_settings.ClaudeDestinationPrefix)
             ? "claude-md-unversioned"
             : _settings.ClaudeDestinationPrefix.Trim('/');
+        var claudeExcludePatterns = GlobPatternMatcher.Parse(_settings.ExcludedPatterns);
+        string claudeRoot = _settings.ClaudeTargetDirectory;
 
         return DetectOrphansInternalAsync((key, entry) =>
         {
             string? localPath = entry.LocalFilePath;
             if (string.IsNullOrWhiteSpace(localPath)) return (false, string.Empty, string.Empty);
+
+            if (!claudeExcludePatterns.IsEmpty && !string.IsNullOrWhiteSpace(claudeRoot) &&
+                ClaudeDiscoveryService.IsExcludedUnderRoot(claudeExcludePatterns, claudeRoot, localPath))
+            {
+                return (false, string.Empty, string.Empty);
+            }
 
             bool isClaudeEntry = key.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ||
                 (entry.DriveRelativePath?.StartsWith(claudePrefix, StringComparison.OrdinalIgnoreCase) ?? false);

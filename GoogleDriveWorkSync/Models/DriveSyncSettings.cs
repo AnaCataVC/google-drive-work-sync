@@ -45,6 +45,12 @@ public class DriveSyncSettings
     public string IncludedExtensions { get; set; } = string.Empty;
     public string ExcludedExtensions { get; set; } = ".tmp, .log, .exe, .bak, .zip";
     public string ExcludedFolders { get; set; } = "node_modules, .git, bin, obj, .vs, temp";
+
+    /// <summary>
+    /// gitignore-style exclusion patterns, one per line (commas also separate). Merged with the
+    /// optional <c>.syncignore</c> file at each work-source root.
+    /// </summary>
+    public string ExcludedPatterns { get; set; } = string.Empty;
     public long MaxFileSizeMb { get; set; } = 20;
     public bool OnlyModifiedOrNew { get; set; } = true;
     public bool IsEnabled { get; set; } = true;

@@ -125,6 +125,8 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
             explicitRelativePath[sanitizedMcpConfigPath] = "mcp-config.sanitized.json";
         }
 
+        var excludePatterns = GlobPatternMatcher.Parse(_driveSyncService.Settings?.ExcludedPatterns);
+
         var queue = new Queue<(string Path, int Depth)>();
         queue.Enqueue((rootPath, 0));
 
@@ -182,10 +184,18 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
                     // worktrees and picking up versioned CLAUDE.md files as untracked.
                     if (IsGitRepoRoot(sub))
                         continue;
+                    if (excludePatterns.IsExcluded(Path.GetRelativePath(rootPath, sub), isDirectory: true))
+                        continue;
                     queue.Enqueue((sub, depth + 1));
                 }
             }
             catch { }
+        }
+
+        // Files collected outside the BFS (home .claude, .claude subtrees) are filtered here too.
+        if (!excludePatterns.IsEmpty)
+        {
+            directCandidates.RemoveAll(file => IsExcludedUnderRoot(excludePatterns, rootPath, file));
         }
 
         foreach (var file in directCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -269,6 +279,17 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
 
         report.UntrackedCandidatesCount = report.Candidates.Count;
         return report;
+    }
+
+    /// <summary>
+    /// Patterns are relative to the Claude target directory, so files outside it never match.
+    /// </summary>
+    public static bool IsExcludedUnderRoot(GlobPatternMatcher patterns, string rootPath, string filePath)
+    {
+        var relative = Path.GetRelativePath(rootPath, filePath);
+        if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+            return false;
+        return patterns.IsExcluded(relative, isDirectory: false);
     }
 
     public static bool IsDirectorySkipped(string dirName)

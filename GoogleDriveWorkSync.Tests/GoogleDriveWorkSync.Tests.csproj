@@ -18,6 +18,7 @@
     <Compile Include="..\GoogleDriveWorkSync\Helpers\TimeSpanJsonConverter.cs" Link="Helpers\TimeSpanJsonConverter.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\WindowsRecycleBinHelper.cs" Link="Helpers\WindowsRecycleBinHelper.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Helpers\NativeSyncEngine.cs" Link="Helpers\NativeSyncEngine.cs" />
+    <Compile Include="..\GoogleDriveWorkSync\Helpers\GlobPatternMatcher.cs" Link="Helpers\GlobPatternMatcher.cs" />
     <Compile Include="..\GoogleDriveWorkSync\Services\Interfaces\*.cs" Link="Services\Interfaces\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
     <Compile Include="..\GoogleDriveWorkSync\ViewModels\ContextDiscoveryViewModel.cs" Link="ViewModels\ContextDiscoveryViewModel.cs" />

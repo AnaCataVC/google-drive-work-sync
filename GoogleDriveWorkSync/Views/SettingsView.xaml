@@ -200,6 +200,19 @@
                         <TextBox Header="Carpetas excluidas"
                                  Text="{x:Bind ViewModel.DriveExcludedFolders, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
+                        <StackPanel Spacing="4">
+                            <TextBox Header="Patrones de exclusión (uno por línea, estilo .gitignore)"
+                                     Text="{x:Bind ViewModel.DriveExcludedPatterns, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="88"
+                                     PlaceholderText="*.psd&#x0a;/borradores/&#x0a;**/salida/*.pdf" />
+                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Admite *, **, ?, '/' final (solo carpetas) y '/' inicial (relativo a la raíz). Las líneas con # son comentarios y '!' no está soportado. También se lee un archivo .syncignore en la raíz de cada carpeta de trabajo." />
+                        </StackPanel>
+
                         <NumberBox Header="Tamaño máximo por archivo (MB, máx 25)"
                                    Value="{x:Bind ViewModel.DriveMaxFileSizeMb, Mode=TwoWay}" Minimum="1" Maximum="25" />
 
