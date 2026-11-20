@@ -137,6 +137,65 @@ function doPost(e) {
     }
 
     // ==========================================
+    // ACTION: LIST FILES (Restore from Drive)
+    // ==========================================
+    if (body.action === "list") {
+      var listed = [];
+      listFilesRecursive(DriveApp.getFolderById(rootFolderId), "", listed);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        action: "list",
+        files: listed
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ==========================================
+    // ACTION: DOWNLOAD FILES (Restore from Drive)
+    // ==========================================
+    if (body.action === "download") {
+      var filesToDownload = body.files || [];
+      var downloadResults = [];
+
+      for (var d = 0; d < filesToDownload.length; d++) {
+        var request = filesToDownload[d];
+        var downloadId = request.fileId;
+        var downloadPath = request.relativePath;
+
+        try {
+          var sourceFile = null;
+          if (downloadId) {
+            try {
+              sourceFile = DriveApp.getFileById(downloadId);
+            } catch (lookupErr) {
+              sourceFile = null;
+            }
+          }
+
+          if (!sourceFile || sourceFile.isTrashed()) {
+            downloadResults.push({ fileId: downloadId, relativePath: downloadPath, status: "not_found", message: "El archivo no fue encontrado en Drive." });
+            continue;
+          }
+
+          downloadResults.push({
+            fileId: downloadId,
+            relativePath: downloadPath,
+            status: "ok",
+            data: Utilities.base64Encode(sourceFile.getBlob().getBytes())
+          });
+        } catch (downloadErr) {
+          downloadResults.push({ fileId: downloadId, relativePath: downloadPath, status: "error", message: downloadErr.toString() });
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        action: "download",
+        results: downloadResults
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ==========================================
     // ACTION: BATCH UPLOAD (Incremental Sync)
     // ==========================================
     var files = body.files || [];
@@ -234,7 +293,42 @@ function resolveFileByPath(rootFolderId, relativePath) {
   var files = currentFolder.getFilesByName(parts[parts.length - 1]);
   return files.hasNext() ? files.next() : null;
 }
+
+/**
+ * Collects every non-trashed file under folder, with paths relative to the root folder.
+ */
+function listFilesRecursive(folder, prefix, out) {
+  var files = folder.getFiles();
+  while (files.hasNext()) {
+    var file = files.next();
+    if (file.isTrashed()) continue;
+    out.push({
+      relativePath: prefix + file.getName(),
+      fileId: file.getId(),
+      size: file.getSize(),
+      modifiedTime: file.getLastUpdated().toISOString()
+    });
+  }
+
+  var subFolders = folder.getFolders();
+  while (subFolders.hasNext()) {
+    var sub = subFolders.next();
+    if (sub.isTrashed()) continue;
+    listFilesRecursive(sub, prefix + sub.getName() + "/", out);
+  }
+}
 ```
+
+**Supported actions** (`body.action`):
+
+| Action | Request `files` | Response |
+|---|---|---|
+| *(none)* | `[{filename, relativePath, mimeType, data}]` | Batch upload: `{status, results:[{relativePath, status, fileId, url}]}` |
+| `trash` | `[{fileId, relativePath, filename}]` | `{status, action:"trash", results:[{relativePath, fileId, status}]}` |
+| `list` | *(not used)* | `{status, action:"list", files:[{relativePath, fileId, size, modifiedTime}]}` |
+| `download` | `[{fileId, relativePath}]` | `{status, action:"download", results:[{fileId, relativePath, status:"ok"\|"not_found"\|"error", data?, message?}]}` |
+
+The desktop app checks that the response echoes the requested `action`. An older script falls through to the upload branch and answers without it, which the app reports as an outdated script. The **Restore** page needs `list` and `download`, so after updating `Code.gs` you must deploy a **New version** (see Step 3). Listing walks the whole root folder in one call, so a very large backup can approach the Apps Script execution time limit.
 
 5. Replace `"PASTE_YOUR_FOLDER_ID_HERE"` with the Folder ID from Step 1.
 6. (Optional) Set `AUTH_TOKEN` if you want a shared secret token.
@@ -262,6 +356,8 @@ function resolveFileByPath(rootFolderId, relativePath) {
 > 4. Click **Deploy**.
 > 
 > *This updates the script logic while preserving your existing Web App URL.*
+>
+> The `list` and `download` actions used by **Restaurar** (Restore from Drive) only exist in the current script. If the Restore page reports an outdated script, paste the full `Code.gs` above and deploy a **New version**.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Status:** Approved  
 > **Target Interface:** Desktop (WinUI 3 / Windows 11)  
-> **Related Plan:** [implementation_plan.md](file:///C:/Users/anaca/.gemini/antigravity/brain/a45330a1-346d-4f76-9a72-cf86b989e610/implementation_plan.md)  
+> **Related Plan:** Internal implementation plan (archived)  
 
 ---
 

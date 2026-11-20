@@ -67,6 +67,18 @@ Crafted around native Windows 11 Fluent Design with Mica backdrop materials, sys
 - **System Tray Minimization:** Runs unobtrusively in the background via `H.NotifyIcon.WinUI`, minimizing to the notification area.
 - **Windows Autostart:** Seamless integration via `--autostart` command-line switch to launch silently on Windows logon.
 
+### 7. gitignore-Style Exclusion Patterns
+- **Glob Patterns:** Exclude paths with a gitignore subset: `*`, `**`, `?`, trailing `/` for directories only, and leading `/` to anchor at the source root. A pattern without a slash matches any file or folder name. `#` comments are allowed; `!` negation is not supported and those lines are ignored.
+- **Per-Folder `.syncignore`:** An optional `.syncignore` file at the root of each work folder is merged with the patterns configured in Settings.
+- **Pruned Traversal:** Excluded directories are never descended into, and excluded files never appear as pending uploads or as Drive orphans. The same patterns apply to Claude context discovery, relative to the Claude target directory.
+
+### 8. Restore from Drive
+- **List and Map:** The **Restaurar** page lists every non-trashed file under the Web App's root folder and maps it to a local destination: first via the hash index (same Drive `FileId` or path), then via the work folder whose destination prefix matches. Each file shows its status: missing locally, identical, would be overwritten, or no destination.
+- **Safe Writes:** Downloads reuse the upload batch limits (8 files / 9 MB). Every target path must stay inside its mapping root; `..`, absolute paths and invalid characters are rejected and reported. Files are written to a temporary file and moved into place, and an overwritten file is first sent to the Windows Recycle Bin (overwriting is off by default).
+- **Alternate Folder:** Restore everything into a different folder instead, which also covers files with no local mapping.
+- **No Re-Upload:** Restored files are recorded in the hash index, so the next sync does not upload them again.
+- **Requires the current script:** Restore uses the `list` and `download` actions. Update `Code.gs` from [docs/google-setup-guide.md](docs/google-setup-guide.md) and deploy a **New version**; an outdated script is reported with that instruction.
+
 ---
 
 ## Architecture & Component Responsibilities
@@ -77,6 +89,7 @@ flowchart TD
         MW[MainWindow & Navigation]
         WSV[WorkSyncViewModel]
         CDV[ContextDiscoveryViewModel]
+        RV[RestoreViewModel]
         SV[SettingsViewModel]
     end
 
@@ -97,12 +110,13 @@ flowchart TD
         GDRV["Google Drive (Target Folders / Trash)"]
     end
 
-    MW --> WSV & CDV & SV
+    MW --> WSV & CDV & RV & SV
     WSV --> DSS
     CDV --> CDS
+    RV --> DSS
     SV --> DSS
     DSS --> SH & SE & ST
-    DSS -- "HTTP POST (JSON Batches / Trash Action)" --> GAS
+    DSS -- "HTTP POST (Batch Upload / Trash / List / Download)" --> GAS
     GAS --> GDRV
 ```
 
@@ -110,12 +124,14 @@ flowchart TD
 
 | Component | Layer | Responsibility |
 | :--- | :--- | :--- |
-| `DriveSyncService` | Service | Incremental SHA-256 synchronization, batch packaging, orphan detection, 3-tier duplicate detection, and Google Apps Script HTTP transport. |
-| `ClaudeDiscoveryService` | Service | BFS workspace discovery (levels 1–6), git repository/worktree filtering, and 3-tier secret redaction. |
+| `DriveSyncService` | Service | Incremental BLAKE3/SHA-256 synchronization, batch packaging, orphan detection, 3-tier duplicate detection, Drive restore (`list`/`download` with safe Recycle Bin overwrites), glob exclusion filtering, and Google Apps Script HTTP transport. |
+| `ClaudeDiscoveryService` | Service | BFS workspace discovery (levels 1–6), git repository/worktree filtering, glob exclusion filtering, and 3-tier secret redaction. |
 | `SyncScheduleService` | Service | Background cron scheduling, periodic wakeups, and Windows autostart coordination. |
+| `GlobPatternMatcher` | Helper | Compiles gitignore-subset glob rules and `.syncignore` files for pruned directory traversal and orphan suppression. |
 | `WorkSyncViewModel` | ViewModel | State management for folder sync, dynamic progress decrements, in-memory list pruning, and orphan/duplicate workflows. |
 | `ContextDiscoveryViewModel` | ViewModel | State management for AI context scanning, file selection, and staging previews. |
-| `SettingsViewModel` | ViewModel | Configuration persistence, Web App connection testing, autostart registration, and index clearing. |
+| `RestoreViewModel` | ViewModel | State management for listing Drive backups, mapping local destinations, alternate-folder restores, and batch downloads. |
+| `SettingsViewModel` | ViewModel | Configuration persistence, exclusion pattern editing, Web App connection testing, autostart registration, and index clearing. |
 | `MainWindow` & Mica Shell | View | Fluent Design navigation shell, Mica backdrop material, and system tray integration via `H.NotifyIcon`. |
 
 ---
@@ -127,7 +143,7 @@ flowchart TD
 - **MVVM Architecture:** `CommunityToolkit.Mvvm` 8.4.0 (Source Generators for Observable Properties & Relay Commands)
 - **Dependency Injection:** `Microsoft.Extensions.Hosting` 9.0.2 (Decoupled Services, ViewModels, and Window lifecycle)
 - **Tray & Shell Integration:** `H.NotifyIcon.WinUI` 2.1.4
-- **Testing Suite:** xUnit 2.5.3 + Moq 4.20.72 (136 unit and integration tests)
+- **Testing Suite:** xUnit 2.5.3 + Moq 4.20.72 (unit and integration test suite)
 - **Installer & Packaging:** Inno Setup 6.7 with LZMA2 ultra compression and automated registry autostart registration
 
 ---
@@ -172,12 +188,13 @@ Navigate to **Ajustes** (Settings) in the application:
 2. **Authentication Token:** Enter your shared secret token.
 3. **Monitored Folders:** Add local folders to synchronize and specify their destination subfolder prefix in Google Drive.
 4. **Automated Scheduling:** Toggle background synchronization, choose target weekdays, and set execution time.
+5. **Exclusion Patterns:** One gitignore-style pattern per line (commas also work), merged with each work folder's `.syncignore`.
 
 ---
 
 ## Automated Testing
 
-The project maintains a comprehensive, isolated test suite with **136 automated unit and integration tests** achieving a 100% pass rate. Tests redirect all settings files and data directories to sandboxed temporary paths, running sequentially to ensure zero mutation of the live user sync state.
+The project maintains a comprehensive, isolated automated unit and integration test suite achieving a 100% pass rate with zero regressions. Tests redirect all settings files and data directories to sandboxed temporary paths, running sequentially to ensure zero mutation of the live user sync state.
 
 ```powershell
 # Execute the full test suite
@@ -190,6 +207,8 @@ Key test coverage areas include:
 - `DuplicateDetectorTests`: 3-tier algorithm verification (size buckets, cache reuse, 16 KB header hashing, and full cryptographic validation).
 - `ClaudeDiscoveryServiceTests`: BFS directory tree traversal, Git repository and worktree boundary pruning, and three-tiered secret redaction.
 - `ViewModelTests`: Dynamic pending count decrements, reverse-loop list pruning, and UI thread safety.
+- `GlobPatternMatcherTests` / `ScanFolderGlobExclusionTests` / `ClaudeDiscoveryGlobExclusionTests`: Anchored, `**`, directory-only and name patterns, ignored comments and negation, pruned work and Claude scans, `.syncignore` merging, and orphan suppression.
+- `RestoreFromDriveTests`: Restore plan mapping and statuses, path traversal rejection, chunked downloads, overwrite handling via the Recycle Bin, hash index updates, and the outdated-script diagnostic.
 
 ---
 

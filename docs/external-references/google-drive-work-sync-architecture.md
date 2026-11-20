@@ -52,6 +52,6 @@
 - [Windows App SDK 2.4 Documentation](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/)
 - [CommunityToolkit.Mvvm Documentation](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/)
 - [H.NotifyIcon Documentation](https://github.com/HavenDV/H.NotifyIcon)
-- Local reference implementations:
-  - `c:\Users\anaca\Repos\work-activity-panel` (`DriveSyncService.cs`, `UpdateService.cs`, `AutostartHelper.cs`)
-  - `c:\Users\anaca\Repos\claude-desktop-tools` (`ClaudeConfigDiscoveryService.cs`, `DriveSyncService.cs`, `ContextDiscoveryViewModel.cs`)
+- Reference repositories:
+  - `work-activity-panel` (`DriveSyncService.cs`, `UpdateService.cs`, `AutostartHelper.cs`)
+  - `claude-desktop-tools` (`ClaudeConfigDiscoveryService.cs`, `DriveSyncService.cs`, `ContextDiscoveryViewModel.cs`)

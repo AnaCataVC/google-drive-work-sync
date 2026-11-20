@@ -67,6 +67,18 @@ Diseñada con Fluent Design nativo de Windows 11, material translúcido Mica, ej
 - **Minimización a la Bandeja del Sistema:** Se ejecuta silenciosamente en segundo plano utilizando `H.NotifyIcon.WinUI`, minimizándose al área de notificación.
 - **Inicio con Windows:** Integración nativa a través del parámetro `--autostart` para ejecutarse automáticamente al iniciar sesión en Windows.
 
+### 7. Patrones de Exclusión Estilo .gitignore
+- **Patrones Glob:** Excluye rutas con un subconjunto de gitignore: `*`, `**`, `?`, `/` final para solo carpetas y `/` inicial para anclar a la raíz de la carpeta de trabajo. Un patrón sin barra coincide con cualquier nombre de archivo o carpeta. Se admiten comentarios con `#`; la negación con `!` no está soportada y esas líneas se ignoran.
+- **`.syncignore` por Carpeta:** Un archivo `.syncignore` opcional en la raíz de cada carpeta de trabajo se combina con los patrones configurados en Ajustes.
+- **Recorrido Podado:** Nunca se desciende a carpetas excluidas, y los archivos excluidos no aparecen como pendientes de subida ni como huérfanos en Drive. Los mismos patrones se aplican al descubrimiento de contexto de Claude, relativos a la carpeta objetivo de Claude.
+
+### 8. Restaurar desde Drive
+- **Listar y Mapear:** La página **Restaurar** lista todos los archivos no eliminados bajo la carpeta raíz del Web App y los asigna a un destino local: primero mediante el índice de hashes (mismo `FileId` o ruta en Drive) y luego mediante la carpeta de trabajo cuyo prefijo de destino coincide. Cada archivo muestra su estado: falta localmente, idéntico, se sobrescribiría o sin destino.
+- **Escritura Segura:** Las descargas reutilizan los límites de lote de la subida (8 archivos / 9 MB). Toda ruta de destino debe quedar dentro de su raíz; se rechazan y reportan `..`, rutas absolutas y caracteres no válidos. Los archivos se escriben en un temporal y luego se mueven a su lugar, y un archivo sobrescrito se envía antes a la Papelera de reciclaje de Windows (sobrescribir está desactivado por defecto).
+- **Carpeta Alternativa:** Permite restaurar todo en otra carpeta, lo que también cubre archivos sin destino local.
+- **Sin Resubidas:** Los archivos restaurados se registran en el índice de hashes, así la siguiente sincronización no los vuelve a subir.
+- **Requiere el script actual:** La restauración usa las acciones `list` y `download`. Actualiza `Code.gs` desde [docs/google-setup-guide.md](docs/google-setup-guide.md) y despliega una **Nueva versión**; si el script está desactualizado, la app lo indica con esa instrucción.
+
 ---
 
 ## Arquitectura y Componentes
@@ -77,6 +89,7 @@ flowchart TD
         MW[MainWindow y Navegación]
         WSV[WorkSyncViewModel]
         CDV[ContextDiscoveryViewModel]
+        RV[RestoreViewModel]
         SV[SettingsViewModel]
     end
 
@@ -97,12 +110,13 @@ flowchart TD
         GDRV["Google Drive (Carpetas de Destino / Papelera)"]
     end
 
-    MW --> WSV & CDV & SV
+    MW --> WSV & CDV & RV & SV
     WSV --> DSS
     CDV --> CDS
+    RV --> DSS
     SV --> DSS
     DSS --> SH & SE & ST
-    DSS -- "HTTP POST (Lotes JSON / Acción Trash)" --> GAS
+    DSS -- "HTTP POST (Lotes JSON / Trash / List / Download)" --> GAS
     GAS --> GDRV
 ```
 
@@ -110,12 +124,14 @@ flowchart TD
 
 | Componente | Capa | Responsabilidad |
 | :--- | :--- | :--- |
-| `DriveSyncService` | Servicio | Sincronización incremental SHA-256, empaquetado en lotes, detección de huérfanos, detección de duplicados en 3 capas y transporte HTTP con Google Apps Script. |
-| `ClaudeDiscoveryService` | Servicio | Descubrimiento de workspaces mediante BFS (niveles 1–6), filtrado de repositorios/worktrees de Git y saneamiento de secretos en 3 capas. |
+| `DriveSyncService` | Servicio | Sincronización incremental BLAKE3/SHA-256, empaquetado en lotes, detección de huérfanos, detección de duplicados en 3 capas, restauración desde Drive (`list`/`download` con sobrescritura segura vía Papelera de reciclaje), filtrado por patrones glob y transporte HTTP con Google Apps Script. |
+| `ClaudeDiscoveryService` | Servicio | Descubrimiento de workspaces mediante BFS (niveles 1–6), filtrado de repositorios/worktrees de Git, exclusiones glob y saneamiento de secretos en 3 capas. |
 | `SyncScheduleService` | Servicio | Programación en segundo plano, activaciones periódicas y coordinación de inicio automático en Windows. |
+| `GlobPatternMatcher` | Helper | Compilación de reglas glob estilo gitignore y archivos `.syncignore` para poda de recorridos y supresión de huérfanos. |
 | `WorkSyncViewModel` | ViewModel | Gestión de estado de sincronización de carpetas, decrementos dinámicos de progreso, poda de listas en memoria y flujos de huérfanos y duplicados. |
 | `ContextDiscoveryViewModel` | ViewModel | Gestión de estado para el escaneo de contexto de IA, selección de archivos y vistas previas. |
-| `SettingsViewModel` | ViewModel | Persistencia de configuración, prueba de conectividad con la Web App, registro de inicio con Windows y limpieza de índices. |
+| `RestoreViewModel` | ViewModel | Gestión de estado para listar respaldos en Drive, mapear destinos locales, restaurar en carpeta alternativa y ejecutar descargas por lotes. |
+| `SettingsViewModel` | ViewModel | Persistencia de configuración, edición de patrones de exclusión, prueba de conectividad con la Web App, registro de inicio con Windows y limpieza de índices. |
 | `MainWindow` y Capa Mica | Vista | Interfaz Fluent Design, material translúcido Mica e integración con la bandeja del sistema mediante `H.NotifyIcon`. |
 
 ---
@@ -127,7 +143,7 @@ flowchart TD
 - **Arquitectura MVVM:** `CommunityToolkit.Mvvm` 8.4.0 (Generadores de código fuente para propiedades observables y comandos)
 - **Inyección de Dependencias:** `Microsoft.Extensions.Hosting` 9.0.2 (Servicios desacoplados, ViewModels y ciclo de vida de la ventana)
 - **Integración con Bandeja del Sistema:** `H.NotifyIcon.WinUI` 2.1.4
-- **Suite de Pruebas:** xUnit 2.5.3 + Moq 4.20.72 (136 pruebas unitarias y de integración)
+- **Suite de Pruebas:** xUnit 2.5.3 + Moq 4.20.72 (suite de pruebas unitarias y de integración)
 - **Instalador y Empaquetado:** Inno Setup 6.7 con compresión ultra LZMA2 y registro de inicio automático en Windows
 
 ---
@@ -172,12 +188,13 @@ Dirígete a la pestaña de **Ajustes** en la aplicación:
 2. **Token de autenticación:** Introduce el token secreto compartido con el script.
 3. **Carpetas de origen:** Agrega las rutas de las carpetas locales a sincronizar y su prefijo de destino en Drive.
 4. **Programación automática:** Activa el respaldo desatendido, elige los días deseados y define la hora de ejecución.
+5. **Patrones de exclusión:** Un patrón estilo .gitignore por línea (también se aceptan comas), combinado con el `.syncignore` de cada carpeta de trabajo.
 
 ---
 
 ## Pruebas Automatizadas
 
-El proyecto mantiene una suite de pruebas aislada y rigurosa con **136 pruebas unitarias y de integración automatizadas** con una tasa de éxito del 100%. Las pruebas redirigen todos los archivos de configuración y datos hacia rutas temporales aisladas, ejecutándose en secuencia para evitar alterar el estado real de sincronización.
+El proyecto mantiene una suite integral y aislada de pruebas unitarias y de integración automatizadas con una tasa de éxito del 100% y cero regresiones. Las pruebas redirigen todos los archivos de configuración y datos hacia rutas temporales aisladas, ejecutándose en secuencia para evitar alterar el estado real de sincronización.
 
 ```powershell
 # Ejecutar la suite completa de pruebas
@@ -190,6 +207,8 @@ dotnet test GoogleDriveWorkSync.Tests/GoogleDriveWorkSync.Tests.csproj
 - `DuplicateDetectorTests`: Verificación del algoritmo en 3 capas (agrupamiento por tamaño, reutilización de caché, hash de cabecera de 16 KB y validación criptográfica completa).
 - `ClaudeDiscoveryServiceTests`: Traversal BFS de directorios, delimitación de repositorios y worktrees de Git y saneamiento de secretos en 3 niveles.
 - `ViewModelTests`: Decrementos dinámicos de conteos pendientes, poda de listas en bucle invertido y seguridad en el hilo de UI.
+- `GlobPatternMatcherTests` / `ScanFolderGlobExclusionTests` / `ClaudeDiscoveryGlobExclusionTests`: Patrones anclados, `**`, solo carpetas y por nombre, comentarios y negación ignorados, escaneos podados en carpetas de trabajo y Claude, combinación con `.syncignore` y supresión de huérfanos.
+- `RestoreFromDriveTests`: Mapeo y estados del plan de restauración, rechazo de rutas con traversal, descargas por lotes, sobrescritura vía Papelera de reciclaje, actualización del índice de hashes y diagnóstico de script desactualizado.
 
 ---
 
