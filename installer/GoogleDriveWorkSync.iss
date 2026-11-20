@@ -4,7 +4,7 @@
 
 #define MyAppName "Google Drive Work Sync"
 #ifndef MyAppVersion
-#define MyAppVersion "1.9.2"
+#define MyAppVersion "1.10.0"
 #endif
 #define MyAppPublisher "AnaCataVC"
 #define MyAppURL "https://github.com/AnaCataVC/google-drive-work-sync"
