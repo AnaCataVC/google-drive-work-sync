@@ -37,7 +37,10 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         new Regex(@"ghp_[a-zA-Z0-9]{36,255}", RegexOptions.Compiled),
         new Regex(@"gho_[a-zA-Z0-9]{36,255}", RegexOptions.Compiled),
         new Regex(@"github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}", RegexOptions.Compiled),
-        new Regex(@"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*", RegexOptions.Compiled)
+        new Regex(@"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*", RegexOptions.Compiled),
+        new Regex(@"sk-ant-[A-Za-z0-9\-_]{20,}", RegexOptions.Compiled),
+        new Regex(@"sk-proj-[A-Za-z0-9\-_]{20,}", RegexOptions.Compiled),
+        new Regex(@"AIza[0-9A-Za-z\-_]{35}", RegexOptions.Compiled)
     };
 
     private static readonly List<Regex> McpValueSecretPatterns = new()
@@ -80,11 +83,12 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         string claudeConfigBucket = _driveSyncService.Settings.ClaudeConfigBucketName;
 
         string projectSegment;
+        bool isGlobalClaudeSource = candidate.Category == ClaudeDiscoveryCategory.McpConfig || IsUnderHomeClaude(candidate.FilePath);
         if (!string.IsNullOrEmpty(candidate.RepositoryRoot))
         {
             projectSegment = Path.GetFileName(candidate.RepositoryRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         }
-        else if (candidate.Category != ClaudeDiscoveryCategory.Context && candidate.Category != ClaudeDiscoveryCategory.ProjectSetting)
+        else if (isGlobalClaudeSource && candidate.Category != ClaudeDiscoveryCategory.Context && candidate.Category != ClaudeDiscoveryCategory.ProjectSetting)
         {
             projectSegment = string.IsNullOrWhiteSpace(claudeConfigBucket) ? "_claude-config" : claudeConfigBucket.Trim();
         }
@@ -96,6 +100,43 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
         string relative = candidate.RelativePath.Replace('\\', '/');
         string prefix = string.IsNullOrWhiteSpace(destinationPrefix) ? "claude-md-unversioned" : destinationPrefix.Trim('/');
         return $"{prefix}/{projectSegment}/{relative}";
+    }
+
+    private bool IsUnderHomeClaude(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || string.IsNullOrWhiteSpace(_homeDirectory))
+            return false;
+
+        try
+        {
+            string homeClaudeRoot = Path.GetFullPath(Path.Combine(_homeDirectory, ".claude"))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string fullPath = Path.GetFullPath(filePath);
+            return fullPath.StartsWith(homeClaudeRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool IsHomeAppDataDirectory(string dirPath)
+    {
+        if (string.IsNullOrWhiteSpace(dirPath) || string.IsNullOrWhiteSpace(_homeDirectory))
+            return false;
+
+        try
+        {
+            string homeAppData = Path.GetFullPath(Path.Combine(_homeDirectory, "AppData"))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullDir = Path.GetFullPath(dirPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(fullDir, homeAppData, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task<ClaudeDiscoveryReport> DiscoverAsync(string rootPath, int maxDepth = 4, CancellationToken cancellationToken = default)
@@ -174,10 +215,20 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
             {
                 foreach (var sub in Directory.GetDirectories(currentDir))
                 {
-                    var name = Path.GetFileName(sub);
+                    var dirInfo = new DirectoryInfo(sub);
+                    // Skip reparse points (symlinks/junctions) so the scan cannot escape the configured root tree.
+                    if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                        continue;
+
+                    var name = dirInfo.Name;
                     // Skip directories whose name is in the blocklist.
                     if (IsDirectorySkipped(name))
                         continue;
+
+                    // Skip the user's AppData tree (e.g. AppData\Local\Temp) even when rootPath is UserProfile.
+                    if (IsHomeAppDataDirectory(sub))
+                        continue;
+
                     // Skip subdirectories that are themselves git repository roots
                     // (standard repos have a .git directory; worktrees have a .git file).
                     // This prevents the BFS from descending into nested repos or linked
@@ -543,7 +594,9 @@ public class ClaudeDiscoveryService : IClaudeDiscoveryService
             var dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-            File.WriteAllText(outputPath, json);
+            string tempPath = $"{outputPath}.{Guid.NewGuid():N}.tmp";
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, outputPath, overwrite: true);
             return true;
         }
         catch

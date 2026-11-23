@@ -373,4 +373,50 @@ public class ClaudeDiscoveryServiceTests : IDisposable
         Assert.Equal("workspace/.claude/settings.local.json", projectSetting.RelativePath.Replace('\\', '/'));
         Assert.Equal("claude-md-unversioned/_sin-repo/workspace/.claude/settings.local.json", service.BuildDriveRelativePath(projectSetting));
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_SkipsHomeAppDataDirectory_WhenScanningUserProfile()
+    {
+        string homeSkillDir = Path.Combine(_fakeHomeDir, ".claude", "skills", "real-skill");
+        Directory.CreateDirectory(homeSkillDir);
+        File.WriteAllText(Path.Combine(homeSkillDir, "SKILL.md"), "# Real skill");
+
+        string tempE2eSkillDir = Path.Combine(_fakeHomeDir, "AppData", "Local", "Temp", "amiga-e2e-claude-123", ".claude", "skills", "ami-test");
+        Directory.CreateDirectory(tempE2eSkillDir);
+        File.WriteAllText(Path.Combine(tempE2eSkillDir, "SKILL.md"), "# Temp E2E skill");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_fakeHomeDir, maxDepth: 4);
+
+        Assert.Contains(report.Candidates, c => c.RelativePath == "skills/real-skill/SKILL.md");
+        Assert.DoesNotContain(report.Candidates, c => c.FilePath.Contains("amiga-e2e-claude", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task DiscoverAsync_RoutesNonHomeDotClaudeSkillsToNoRepoBucket_NotGlobalConfig()
+    {
+        string localSkillDir = Path.Combine(_tempDir, "workspace", ".claude", "skills", "local-skill");
+        Directory.CreateDirectory(localSkillDir);
+        File.WriteAllText(Path.Combine(localSkillDir, "SKILL.md"), "# Workspace skill");
+
+        var service = CreateService();
+        var report = await service.DiscoverAsync(_tempDir, maxDepth: 3);
+
+        var skill = Assert.Single(report.Candidates, c => c.Category == ClaudeDiscoveryCategory.Skill);
+        Assert.Equal("skills/local-skill/SKILL.md", skill.RelativePath);
+        Assert.Equal("claude-md-unversioned/_sin-repo/skills/local-skill/SKILL.md", service.BuildDriveRelativePath(skill));
+    }
+
+    [Fact]
+    public void IsCandidateAllowed_RejectsProviderApiKeys()
+    {
+        string anthropicFile = Path.Combine(_tempDir, "hook-a.md");
+        File.WriteAllText(anthropicFile, "ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456");
+
+        string googleFile = Path.Combine(_tempDir, "hook-g.md");
+        File.WriteAllText(googleFile, "GEMINI_KEY=AIzaSyDummyKeyValue1234567890123456789012");
+
+        Assert.False(ClaudeDiscoveryService.IsCandidateAllowed(anthropicFile));
+        Assert.False(ClaudeDiscoveryService.IsCandidateAllowed(googleFile));
+    }
 }
